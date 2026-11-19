@@ -7,7 +7,11 @@ import { parseEncryptionKeyring } from "./connections/crypto.js";
 const env = parseEnv(process.env);
 const pool = env.DATABASE_URL ? createDatabasePool(env.DATABASE_URL) : undefined;
 const encryptionKeyring = parseEncryptionKeyring(env.CONNECTION_ENCRYPTION_KEYS, env.CONNECTION_ENCRYPTION_CURRENT_VERSION);
-const app = createApp({ pool, secureCookies: env.NODE_ENV === "production", encryptionKeyring });
+const app = createApp({
+  pool,
+  secureCookies: env.NODE_ENV === "production",
+  ...(encryptionKeyring ? { encryptionKeyring } : {}),
+});
 const server = createServer(app);
 
 server.listen(env.PORT, env.HOST, () => {
