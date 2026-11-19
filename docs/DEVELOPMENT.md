@@ -126,3 +126,14 @@ The repository includes a development-only Compose stack for PostgreSQL, MongoDB
 The migration runner applies numbered SQL files in order, records SHA-256 checksums, serializes concurrent runners with a PostgreSQL advisory transaction lock, and refuses to run an already-applied migration whose contents have changed. Create a new migration instead of editing an applied one.
 
 The Compose MongoDB and Redis services are included for later feature development; the current API does not yet provision MongoDB databases or use Redis. Do not use the example credentials or this development stack as production deployment configuration.
+
+Project membership administration is also available:
+
+- `GET /api/projects/:projectId/members` — list members, roles, and join dates.
+- `POST /api/projects/:projectId/members` — add an existing active account with `project_admin`, `developer`, or `read_only`.
+- `PATCH /api/projects/:projectId/members/:userId` — change a member's role.
+- `DELETE /api/projects/:projectId/members/:userId` — remove a member.
+
+Only a project administrator or platform administrator can change membership. Mutations lock the project row in a transaction, re-check the caller's role, and prevent removing or downgrading the final project administrator. Membership changes and their audit events are committed together. Project and authentication responses set `Cache-Control: no-store`.
+
+Fine-grained permission catalogs and real-world authorization testing for all project operations remain future work; these roles are currently coarse project-level roles.
