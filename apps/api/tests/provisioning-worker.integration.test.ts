@@ -6,7 +6,7 @@ import { encryptConnectionUri, decryptSecretString, type EncryptedConnectionSecr
 import { createDatabaseProvisioningRequest } from "../src/provisioning/repository.js";
 import { processNextProvisioningJob } from "../src/provisioning/worker.js";
 import { removeSharedDatabaseUser } from "../src/provisioning/shared-mongodb.js";
-import { revealDatabaseConnectionUri } from "../src/provisioning/credentials.js";
+import { revealDatabaseConnectionUri, rotateDatabaseCredentialKey } from "../src/provisioning/credentials.js";
 import { hashPassword } from "../src/auth/password.js";
 import { runMigrations } from "../src/db/migrations.js";
 
@@ -76,7 +76,24 @@ integration("database provisioning worker integration", () => {
     const status = await pool.query<{ status: string }>("SELECT status FROM database_resources WHERE id=$1", [resource.id]);
     expect(status.rows[0]?.status).toBe("ready");
 
-    const revealedUri = await revealDatabaseConnectionUri(pool, keyring, {
+    const rotatedKey = Buffer.alloc(32, 88);
+    const rotatedRing = { currentVersion: 2, keys: new Map([[1, keyring.keys.get(1)!, [2, rotatedKey]]) };
+    const beforeRotation = await pool.query<{ ciphertext: Buffer; wrappedDek: Buffer }>(
+      'SELECT credential_ciphertext AS ciphertext, wrapped_dek AS "wrappedDek" FROM database_resources WHERE id=$1',
+      [resource.id],
+    );
+    const rotation = await rotateDatabaseCredentialKey(pool, rotatedRing, {
+      caller: { userId: user.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+    });
+    expect(rotation).toEqual({ keyVersion: 2, rotated: true });
+    const afterRotation = await pool.query<{ ciphertext: Buffer; wrappedDek: Buffer }>(
+      'SELECT credential_ciphertext AS ciphertext, wrapped_dek AS "wrappedDek" FROM database_resources WHERE id=$1',
+      [resource.id],
+    );
+    expect(afterRotation.rows[0]!.ciphertext).toEqual(beforeRotation.rows[0]!.ciphertext);
+    expect(afterRotation.rows[0]!.wrappedDek).not.toEqual(beforeRotation.rows[0]!.wrappedDek);
+
+    const revealedUri = await revealDatabaseConnectionUri(pool, rotatedRing, {
       caller: { userId: user.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
     });
     expect(revealedUri).toContain("authMechanism=SCRAM-SHA-256");
