@@ -46,3 +46,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Security vulnerabilities must be reporte
 ## License
 
 The project-owned source code is licensed under the MIT License. Third-party software and MongoDB server distributions retain their own licences; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+
+### MongoDB workspace
+
+The shared-database module provisions isolated database-scoped application users, encrypts credentials, supports audited key rotation and confirmed asynchronous deletion, and exposes a permission-checked workspace API for collections, documents, and indexes. The workspace does not expose administrator credentials or accept arbitrary MongoDB commands.
