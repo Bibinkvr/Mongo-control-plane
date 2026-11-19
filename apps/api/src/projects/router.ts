@@ -220,7 +220,7 @@ export function createProjectsRouter(pool: Pool): Router {
       );
       await client.query(
         `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
-         VALUES ($1, $2, 'project.member.add', 'user', $3, jsonb_build_object('role', $4))`,
+         VALUES ($1, $2, 'project.member.add', 'user', $3, jsonb_build_object('role', $4::text))`,
         [user.id, parsedId.data, target.rows[0].id, body.data.role],
       );
       await client.query("COMMIT");
@@ -301,7 +301,7 @@ export function createProjectsRouter(pool: Pool): Router {
       );
       await client.query(
         `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
-         VALUES ($1, $2, 'project.member.role_change', 'user', $3, jsonb_build_object('role', $4))`,
+         VALUES ($1, $2, 'project.member.role_change', 'user', $3, jsonb_build_object('role', $4::text))`,
         [user.id, parsedId.data, parsedUserId.data, body.data.role],
       );
       await client.query("COMMIT");
