@@ -161,6 +161,18 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
   }
 }
 
+/** Claims and processes at most one job. Useful for controlled worker processes and integration tests. */
+export async function processNextProvisioningJob(
+  pool: Pool,
+  keyring: EncryptionKeyring,
+  options: ProvisioningWorkerOptions = {},
+): Promise<boolean> {
+  const job = await claimJob(pool, options.leaseSeconds ?? 120);
+  if (!job) return false;
+  await processJob(pool, keyring, job, options.tls ?? true);
+  return true;
+}
+
 /** A PostgreSQL outbox worker. Multiple processes can run safely using SKIP LOCKED leases. */
 export async function runProvisioningWorker(
   pool: Pool,
@@ -175,11 +187,8 @@ export async function runProvisioningWorker(
   if (!Number.isInteger(leaseSeconds) || leaseSeconds < 30 || leaseSeconds > 900) throw new Error("Invalid provisioning worker lease.");
   while (!signal?.aborted) {
     try {
-      const job = await claimJob(pool, leaseSeconds);
-      if (job) {
-        await processJob(pool, keyring, job, tls);
-        continue;
-      }
+      const processed = await processNextProvisioningJob(pool, keyring, { leaseSeconds, tls });
+      if (processed) continue;
     } catch {
       process.stderr.write("Provisioning worker could not claim or process a job.\n");
     }
