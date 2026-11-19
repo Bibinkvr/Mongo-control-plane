@@ -1,5 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { MongoServerError, ObjectId } from "mongodb";
+import { MongoNetworkError, MongoNetworkTimeoutError, MongoServerError, MongoServerSelectionError, ObjectId } from "mongodb";
 import { z } from "zod";
 import type { Pool } from "pg";
 import { resolveSession } from "../auth/router.js";
@@ -17,6 +17,14 @@ function jsonByteLength(value: unknown): number {
 const collectionNameSchema = z.string().min(1).max(120).refine(isSafeCollectionName);
 
 function sendWorkspaceError(error: unknown, response: Response, next: NextFunction): void {
+  if (error instanceof MongoNetworkTimeoutError) {
+    response.status(504).json({ error: { code: "MONGODB_TIMEOUT", message: "The MongoDB operation timed out." } });
+    return;
+  }
+  if (error instanceof MongoServerSelectionError || error instanceof MongoNetworkError) {
+    response.status(503).json({ error: { code: "MONGODB_UNAVAILABLE", message: "The configured MongoDB service is unavailable." } });
+    return;
+  }
   if (error instanceof DatabaseWorkspaceError || error instanceof ConnectionCredentialError) {
     const status = error.code === "PROJECT_NOT_FOUND" || error.code === "DATABASE_NOT_FOUND" || error.code === "CONNECTION_NOT_FOUND" ? 404
       : error.code === "FORBIDDEN" ? 403
@@ -25,6 +33,14 @@ function sendWorkspaceError(error: unknown, response: Response, next: NextFuncti
     return;
   }
   if (error instanceof MongoServerError) {
+    if (error.code === 13) {
+      response.status(403).json({ error: { code: "MONGODB_UNAUTHORIZED", message: "The application database account is not authorized for this operation." } });
+      return;
+    }
+    if (error.code === 50) {
+      response.status(504).json({ error: { code: "MONGODB_TIMEOUT", message: "The MongoDB operation exceeded its execution limit." } });
+      return;
+    }
     if (error.code === 48 || error.code === 11000) {
       response.status(409).json({ error: { code: "CONFLICT", message: "The requested MongoDB resource already exists." } });
       return;
@@ -75,7 +91,7 @@ export function createWorkspaceRouter(pool: Pool, keyring: EncryptionKeyring, po
       const collections = await withManagedDatabase(pool, keyring, policy, {
         caller: response.locals["workspaceCaller"] as { userId: string; isPlatformAdmin: boolean },
         ...ids, permission: "database:read",
-      }, async (database) => database.listCollections({}, { nameOnly: true }).toArray());
+      }, async (database) => database.listCollections({}, { nameOnly: true, maxTimeMS: 5_000 }).toArray());
       response.status(200).json({ collections: collections.map((item) => ({ name: item.name, type: item.type })) });
     } catch (error) { sendWorkspaceError(error, response, next); }
   });
@@ -242,7 +258,7 @@ export function createWorkspaceRouter(pool: Pool, keyring: EncryptionKeyring, po
       const indexes = await withManagedDatabase(pool, keyring, policy, {
         caller: response.locals["workspaceCaller"] as { userId: string; isPlatformAdmin: boolean },
         ...ids, permission: "database:read",
-      }, async (database) => database.collection(name.data).listIndexes().toArray());
+      }, async (database) => database.collection(name.data).listIndexes({ maxTimeMS: 5_000 }).toArray());
       response.status(200).json({ indexes });
     } catch (error) { sendWorkspaceError(error, response, next); }
   });
@@ -257,7 +273,9 @@ export function createWorkspaceRouter(pool: Pool, keyring: EncryptionKeyring, po
     if (!ids) return;
     const keys = body.success ? body.data.keys : {};
     const safeKeys = Object.keys(keys).length > 0 && Object.keys(keys).length <= 8
-      && Object.keys(keys).every((key) => key.length <= 120 && !key.startsWith("$") && !key.includes("."));
+      && Object.keys(keys).every((key) => key.length <= 120 && !key.startsWith("$") && !key.includes(".")
+        && !Array.from(key).some((char) => char.charCodeAt(0) < 32)
+        && !["__proto__", "constructor", "prototype"].includes(key));
     if (!name.success || !body.success || !safeKeys) {
       response.status(400).json({ error: { code: "INVALID_INDEX", message: "Provide one to eight valid index fields with direction 1 or -1." } });
       return;
@@ -267,7 +285,7 @@ export function createWorkspaceRouter(pool: Pool, keyring: EncryptionKeyring, po
         caller: response.locals["workspaceCaller"] as { userId: string; isPlatformAdmin: boolean },
         ...ids, permission: "database:admin", auditAction: "database.index.create",
         auditMetadata: { collection: name.data, fields: Object.keys(keys) },
-      }, async (database) => database.collection(name.data).createIndex(keys, { unique: body.data.unique ?? false }));
+      }, async (database) => database.collection(name.data).createIndex(keys, { unique: body.data.unique ?? false }, { maxTimeMS: 30_000 }));
       response.status(201).json({ indexName });
     } catch (error) { sendWorkspaceError(error, response, next); }
   });
@@ -275,7 +293,7 @@ export function createWorkspaceRouter(pool: Pool, keyring: EncryptionKeyring, po
   router.delete("/:projectId/databases/:databaseId/collections/:collectionName/indexes/:indexName", async (request, response, next) => {
     const ids = parseIds(request, response);
     const name = collectionNameSchema.safeParse(request.params["collectionName"]);
-    const indexName = z.string().min(1).max(120).safeParse(request.params["indexName"]);
+    const indexName = z.string().min(1).max(120).refine((value) => !Array.from(value).some((char) => char.charCodeAt(0) < 32)).safeParse(request.params["indexName"]);
     if (!ids) return;
     if (!name.success || !indexName.success || indexName.data === "_id_") {
       response.status(400).json({ error: { code: "INVALID_INDEX", message: "A valid non-_id_ index name is required." } });
@@ -286,7 +304,7 @@ export function createWorkspaceRouter(pool: Pool, keyring: EncryptionKeyring, po
         caller: response.locals["workspaceCaller"] as { userId: string; isPlatformAdmin: boolean },
         ...ids, permission: "database:admin", auditAction: "database.index.drop",
         auditMetadata: { collection: name.data, indexName: indexName.data },
-      }, async (database) => database.collection(name.data).dropIndex(indexName.data));
+      }, async (database) => database.collection(name.data).dropIndex(indexName.data, { maxTimeMS: 30_000 }));
       response.status(200).json({ dropped: true, indexName: indexName.data });
     } catch (error) { sendWorkspaceError(error, response, next); }
   });
