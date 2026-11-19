@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { hasProjectPermission } from "../auth/permissions.js";
 import { encryptSecretString, type EncryptionKeyring } from "../connections/crypto.js";
-import { createSharedDatabaseIdentity, generateSharedDatabasePassword } from "./shared-mongodb.js";
+import { createSharedDatabaseBackupIdentity, createSharedDatabaseIdentity, generateSharedDatabasePassword } from "./shared-mongodb.js";
 
 export type ProvisioningCaller = { userId: string; isPlatformAdmin: boolean };
 export type CreateDatabaseRequest = {
@@ -28,6 +28,9 @@ export async function createDatabaseProvisioningRequest(
   const password = generateSharedDatabasePassword();
   const identity = createSharedDatabaseIdentity(input.projectId, resourceId, password);
   const encrypted = encryptSecretString(password, keyring, { projectId: input.projectId, connectionId: resourceId });
+  const backupPassword = generateSharedDatabasePassword();
+  const backupIdentity = createSharedDatabaseBackupIdentity(input.projectId, resourceId, backupPassword);
+  const encryptedBackupPassword = encryptSecretString(backupPassword, keyring, { projectId: input.projectId, connectionId: resourceId });
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -59,11 +62,17 @@ export async function createDatabaseProvisioningRequest(
       `INSERT INTO database_resources
         (id, project_id, connection_id, name, database_name, username,
          credential_ciphertext, credential_nonce, credential_auth_tag, wrapped_dek,
-         wrap_nonce, wrap_auth_tag, key_version, encryption_context_version, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,2,$14)`,
+         wrap_nonce, wrap_auth_tag, key_version, encryption_context_version,
+         backup_username, backup_credential_ciphertext, backup_credential_nonce,
+         backup_credential_auth_tag, backup_wrapped_dek, backup_wrap_nonce,
+         backup_wrap_auth_tag, backup_key_version, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,2,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
       [resourceId, input.projectId, input.connectionId, input.name, identity.databaseName, identity.username,
        encrypted.ciphertext, encrypted.nonce, encrypted.authTag, encrypted.wrappedDek,
-       encrypted.wrapNonce, encrypted.wrapAuthTag, encrypted.keyVersion, input.caller.userId],
+       encrypted.wrapNonce, encrypted.wrapAuthTag, encrypted.keyVersion,
+       backupIdentity.username, encryptedBackupPassword.ciphertext, encryptedBackupPassword.nonce,
+       encryptedBackupPassword.authTag, encryptedBackupPassword.wrappedDek, encryptedBackupPassword.wrapNonce,
+       encryptedBackupPassword.wrapAuthTag, encryptedBackupPassword.keyVersion, input.caller.userId],
     );
     await client.query(
       "INSERT INTO provisioning_jobs (id, project_id, resource_id, operation, status) VALUES ($1,$2,$3,'provision','queued')",
