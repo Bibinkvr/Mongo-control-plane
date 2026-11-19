@@ -51,7 +51,7 @@ function decrypt(ciphertext: Buffer, nonce: Buffer, authTag: Buffer, key: Buffer
 }
 
 export function parseMongoConnectionUri(uri: string): { hostLabel: string } {
-  if (uri.length < 10 || uri.length > 16_384 || /[\\r\\n\\0]/.test(uri)) {
+  if (uri.length < 10 || uri.length > 16_384 || /[\r\n\0]/.test(uri)) {
     throw new Error("MongoDB connection URI is invalid.");
   }
   let parsed: URL;
@@ -123,7 +123,7 @@ export function rewrapConnectionSecret(secret: EncryptedConnectionSecret, keyrin
 
 export function parseEncryptionKeyring(raw: string | undefined, currentVersionRaw: string | undefined): EncryptionKeyring | undefined {
   if (!raw && !currentVersionRaw) return undefined;
-  if (!raw || !currentVersionRaw || !/^\\d+$/.test(currentVersionRaw)) {
+  if (!raw || !currentVersionRaw || !/^\d+$/.test(currentVersionRaw)) {
     throw new Error("CONNECTION_ENCRYPTION_KEYS and CONNECTION_ENCRYPTION_CURRENT_VERSION must be configured together.");
   }
   let parsed: unknown;
