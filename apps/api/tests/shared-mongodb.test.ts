@@ -60,14 +60,14 @@ describe("shared MongoDB provisioning", () => {
       writeConcern: { w: "majority" },
     }));
     expect(fake.getUser()).toMatchObject({
-      customData: { managedBy: "mongo-control-plane", resourceId },
+      customData: { managedBy: "mongo-control-plane", projectId, resourceId },
     });
   });
 
   it("reconciles retries only for a user owned by this resource", async () => {
     const fake = fakeAdminDb({
       user: identity.username,
-      customData: { managedBy: "mongo-control-plane", resourceId },
+      customData: { managedBy: "mongo-control-plane", projectId, resourceId },
     });
     const result = await provisionSharedDatabaseUser(fake.admin, identity);
     expect(result.action).toBe("reconciled");
@@ -95,10 +95,10 @@ describe("shared MongoDB provisioning", () => {
     expect(commands.some((entry) => "updateUser" in entry)).toBe(true);
   });
 
-  it("refuses to modify an unrelated pre-existing user", async () => {
+  it("refuses to modify a user from another project", async () => {
     const fake = fakeAdminDb({
       user: identity.username,
-      customData: { managedBy: "another-service", resourceId },
+      customData: { managedBy: "another-service", projectId, resourceId },
     });
     await expect(provisionSharedDatabaseUser(fake.admin, identity)).rejects.toThrow(/not owned/);
     expect(fake.commands.some((command) => "updateUser" in command)).toBe(false);
