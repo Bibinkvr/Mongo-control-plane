@@ -3,15 +3,18 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { runMigrations } from "../src/db/migrations.js";
 
-const databaseUrl = process.env["TEST_DATABASE_URL"];
+const databaseUrl = process.env["TEST_DATABASE_URL"] ?? "";
 const integration = describe.skipIf(!databaseUrl);
+let pool: Pool | undefined;
+const db = (): Pool => {
+  if (!pool) throw new Error("TEST_DATABASE_URL is not configured.");
+  return pool;
+};
 
 integration("PostgreSQL schema and tenant isolation", () => {
-  let pool: Pool;
-
   beforeAll(async () => {
     pool = new Pool({ connectionString: databaseUrl, max: 3 });
-    await runMigrations(pool);
+    await runMigrations(db());
   });
 
   afterAll(async () => {
@@ -19,7 +22,7 @@ integration("PostgreSQL schema and tenant isolation", () => {
   });
 
   it("applies migrations idempotently and verifies stored checksums", async () => {
-    const results = await runMigrations(pool);
+    const results = await runMigrations(db());
     expect(results.length).toBeGreaterThan(0);
     expect(results.every((item) => item.outcome === "skipped")).toBe(true);
   });
@@ -28,11 +31,11 @@ integration("PostgreSQL schema and tenant isolation", () => {
     const suffix = randomUUID();
     const email = `case-${suffix}@example.com`;
     const passwordHash = `scrypt$32768$${"a".repeat(32)}$${"b".repeat(128)}`;
-    await pool.query(
+    await db().query(
       "INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, $3)",
       [email, passwordHash, "Integration Test"],
     );
-    await expect(pool.query(
+    await expect(db().query(
       "INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, $3)",
       [email.toUpperCase(), passwordHash, "Duplicate"],
     )).rejects.toMatchObject({ code: "23505" });
