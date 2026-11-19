@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { hasProjectPermission } from "../auth/permissions.js";
 
 export type BackupCaller = { userId: string; isPlatformAdmin: boolean };
@@ -15,7 +15,7 @@ export class BackupRequestError extends Error {
 }
 
 async function lockProjectAccess(
-  client: Awaited<ReturnType<Pool["connect"]>>,
+  client: PoolClient,
   caller: BackupCaller,
   projectId: string,
 ): Promise<string> {
