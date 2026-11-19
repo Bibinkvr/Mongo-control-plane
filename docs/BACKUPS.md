@@ -41,7 +41,7 @@ Official references:
 
 The Node.js MongoDB driver can use the application's DNS-pinned lookup callback. The external Database Tools binaries do not use that callback. Therefore, a backup worker must not run `mongodump` against customer-controlled connection strings until its network namespace/container has an enforced egress policy that allows only approved database destinations and blocks loopback, link-local, cloud metadata, multicast, and reserved ranges. DNS validation alone is not enough if the actual process can resolve a different address.
 
-The worker retrieves a managed database credential only through a lease-bound internal service, and must not log the URI. **Current limitation:** the managed database credential is the application's existing database-scoped user, which currently has `readWrite` privileges. Before production use, provision a separate `read`-only backup user and make the worker require that credential; do not fall back to the application's write-capable credential. No public API route may accept a URI, host, binary path, command, or arbitrary restore options.
+The worker retrieves a dedicated read-only backup user only through a lease-bound internal service. Shared MongoDB provisioning creates a separate `bkp_...` principal with the `read` role on exactly one managed database; its password is encrypted separately and key rotation re-wraps both application and backup credentials. Existing databases created before this migration receive `backup_user` backfill jobs. The API refuses backup requests until `backup_user_ready_at` confirms the read-only principal was provisioned. The worker never falls back to the application's `readWrite` user. No public API route may accept a URI, host, binary path, command, or arbitrary restore options.
 
 ## Consistency and restore semantics
 
@@ -53,7 +53,7 @@ Restore is a destructive operation. The eventual API must require a project-leve
 
 - Backup metadata schema and API authorization.
 - Durable scheduling and retry-safe backup/restore jobs.
-- Isolated worker with enforceable egress firewall policy (the environment flag is only an operator attestation).\n- Separate read-only backup database user and encrypted credential lifecycle.\n- Real `mongodump` integration tests against the supported MongoDB versions and topologies.
+- Isolated worker with enforceable egress firewall policy (the environment flag is only an operator attestation).\n- Real `mongodump` integration tests against the supported MongoDB versions and topologies.- Real `mongodump` integration tests against the supported MongoDB versions and topologies.
 - Database Tools installation/version check and compatibility matrix.
 - Encrypted local and object-storage adapters.
 - Restore verification and failure compensation.
