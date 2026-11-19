@@ -174,6 +174,24 @@ async function failBackupJob(
   }
 }
 
+async function isBackupMetadataCommitted(
+  pool: Pool,
+  backupId: string,
+  storageKey: string,
+): Promise<boolean> {
+  try {
+    const result = await pool.query<{ status: string; storage_key: string | null }>(
+      "SELECT status, storage_key FROM backup_records WHERE id=$1",
+      [backupId],
+    );
+    return result.rows[0]?.status === "ready" && result.rows[0]?.storage_key === storageKey;
+  } catch {
+    // If commit outcome cannot be established, preserve the object. An orphan
+    // can be reconciled later; deleting a committed object would corrupt a ready backup.
+    return true;
+  }
+}
+
 function safeErrorCode(error: unknown): string {
   if (error instanceof DatabaseToolsError) return error.code;
   if (error instanceof Error && error.message === "BACKUP_LEASE_LOST") return "BACKUP_LEASE_LOST";
@@ -231,7 +249,10 @@ async function processBackupJob(
     metadata = undefined;
   } catch (error) {
     if (metadata) {
-      await deleteEncryptedBackup(options.storageRoot, job.project_id, job.backup_id).catch(() => undefined);
+      const committed = await isBackupMetadataCommitted(pool, job.backup_id, metadata.storageKey);
+      if (!committed) {
+        await deleteEncryptedBackup(options.storageRoot, job.project_id, job.backup_id).catch(() => undefined);
+      }
     }
     await failBackupJob(pool, job, actorId, safeErrorCode(error)).catch(() => undefined);
   } finally {
