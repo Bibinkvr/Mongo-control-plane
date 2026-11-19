@@ -126,7 +126,7 @@ integration("database provisioning worker integration", () => {
     const indexName = await withManagedDatabase(pool, keyring, workspacePolicy, {
       caller: { userId: user.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
       permission: "database:admin", auditAction: "database.index.create", auditMetadata: { collection: "workspace_docs" },
-    }, async (database) => database.collection("workspace_docs").createIndex({ label: 1 }, { unique: true }));
+    }, async (database) => database.collection("workspace_docs").createIndex({ label: 1 }, { unique: true }, { maxTimeMS: 30_000 }));
     expect(indexName).toBe("label_1");
 
     await withManagedDatabase(pool, keyring, workspacePolicy, {
