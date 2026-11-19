@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { MongoClient } from "mongodb";
 import type { Pool } from "pg";
-import { decryptSecretString, type EncryptedConnectionSecret, type EncryptionKeyring } from "../connections/crypto.js";
+import { decryptSecretString, encryptSecretString, type EncryptedConnectionSecret, type EncryptionKeyring } from "../connections/crypto.js";
 import { loadConnectionCredential } from "../connections/credential-service.js";
-import { createSharedDatabaseBackupIdentity, createSharedDatabaseIdentity, provisionSharedDatabaseBackupUser, provisionSharedDatabaseUser, removeSharedDatabaseBackupUser, removeSharedDatabaseUser } from "./shared-mongodb.js";
+import { createSharedDatabaseBackupIdentity, createSharedDatabaseIdentity, generateSharedDatabasePassword, provisionSharedDatabaseBackupUser, provisionSharedDatabaseUser, removeSharedDatabaseBackupUser, removeSharedDatabaseUser } from "./shared-mongodb.js";
 import { createSafeMongoLookup } from "./network-guard.js";
 
-type ClaimedJob = { id: string; project_id: string; resource_id: string; operation: "provision" | "delete"; lock_token: string; attempt_count: number; max_attempts: number };
+type ClaimedJob = { id: string; project_id: string; resource_id: string; operation: "provision" | "delete" | "backup_user"; lock_token: string; attempt_count: number; max_attempts: number };
 type ResourceRow = EncryptedConnectionSecret & {
   id: string; project_id: string; connection_id: string; database_name: string; username: string;
   created_by: string | null; created_by_is_platform_admin: boolean | null; encryptionContextVersion: 1 | 2;
@@ -29,7 +29,7 @@ async function claimJob(pool: Pool, leaseSeconds: number): Promise<ClaimedJob | 
     const result = await client.query<ClaimedJob>(
       `WITH candidate AS (
          SELECT id FROM provisioning_jobs
-          WHERE operation IN ('provision', 'delete')
+          WHERE operation IN ('provision', 'delete', 'backup_user')
             AND ((status = 'queued' AND available_at <= now())
               OR (status = 'running' AND lease_expires_at < now()))
           ORDER BY available_at, created_at
@@ -76,14 +76,16 @@ async function completeJob(pool: Pool, job: ClaimedJob, actorId: string): Promis
          Buffer.alloc(0), Buffer.alloc(12), Buffer.alloc(16)],
       );
       if (resourceUpdate.rowCount !== 1) throw new Error("PROVISIONING_RESOURCE_STATE_CHANGED");
-    } else {
+    } else if (job.operation === "provision") {
       const resourceUpdate = await client.query(
         "UPDATE database_resources SET status='ready', last_error_code=NULL, updated_at=now() WHERE id=$1 AND project_id=$2 AND status='provisioning'",
         [job.resource_id, job.project_id],
       );
       if (resourceUpdate.rowCount !== 1) throw new Error("PROVISIONING_RESOURCE_STATE_CHANGED");
     }
-    const action = job.operation === "delete" ? "database.delete.succeeded" : "database.provision.succeeded";
+    const action = job.operation === "delete" ? "database.delete.succeeded"
+      : job.operation === "backup_user" ? "database.backup-user.provision.succeeded"
+      : "database.provision.succeeded";
     await client.query(
       `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
        VALUES ($1,$2,$4,'database',$3,'{}'::jsonb)`,
@@ -113,8 +115,9 @@ async function failJob(pool: Pool, job: ClaimedJob, actorId: string | null): Pro
     if (updated.rowCount === 1) {
       await client.query(
         `UPDATE database_resources
-            SET status=CASE WHEN $2 THEN 'failed' WHEN $3::text='delete' THEN 'deleting' ELSE 'provisioning' END,
-                last_error_code='PROVISIONING_FAILED', updated_at=now()
+            SET status=CASE WHEN $3::text='backup_user' THEN status WHEN $2 THEN 'failed' WHEN $3::text='delete' THEN 'deleting' ELSE 'provisioning' END,
+                last_error_code=CASE WHEN $3::text='backup_user' THEN 'BACKUP_USER_PROVISIONING_FAILED' ELSE 'PROVISIONING_FAILED' END,
+                updated_at=now()
           WHERE id=$1 AND status <> 'deleted'`,
         [job.resource_id, terminal, job.operation],
       );
@@ -148,11 +151,49 @@ async function loadResource(pool: Pool, job: ClaimedJob): Promise<ResourceRow> {
        FROM database_resources r
        LEFT JOIN users u ON u.id = r.created_by
       WHERE r.id=$1 AND r.project_id=$2 AND r.status=$3`,
-    [job.resource_id, job.project_id, job.operation === "delete" ? "deleting" : "provisioning"],
+    [job.resource_id, job.project_id, job.operation === "delete" ? "deleting" : job.operation === "backup_user" ? "ready" : "provisioning"],
   );
   const row = result.rows[0];
   if (!row || !row.created_by) throw new Error("PROVISIONING_RESOURCE_UNAVAILABLE");
   return row;
+}
+
+async function loadOrCreateBackupIdentity(
+  pool: Pool,
+  keyring: EncryptionKeyring,
+  resource: ResourceRow,
+): Promise<ReturnType<typeof createSharedDatabaseBackupIdentity>> {
+  if (resource.backup_username && resource.backup_ciphertext && resource.backup_nonce
+    && resource.backup_auth_tag && resource.backup_wrapped_dek && resource.backup_wrap_nonce
+    && resource.backup_wrap_auth_tag && resource.backup_key_version) {
+    const password = decryptSecretString({
+      ciphertext: resource.backup_ciphertext,
+      nonce: resource.backup_nonce,
+      authTag: resource.backup_auth_tag,
+      wrappedDek: resource.backup_wrapped_dek,
+      wrapNonce: resource.backup_wrap_nonce,
+      wrapAuthTag: resource.backup_wrap_auth_tag,
+      keyVersion: resource.backup_key_version,
+      encryptionContextVersion: 2,
+    }, keyring, { projectId: resource.project_id, connectionId: resource.id });
+    return createSharedDatabaseBackupIdentity(resource.project_id, resource.id, password);
+  }
+
+  const password = generateSharedDatabasePassword();
+  const identity = createSharedDatabaseBackupIdentity(resource.project_id, resource.id, password);
+  const encrypted = encryptSecretString(password, keyring, { projectId: resource.project_id, connectionId: resource.id });
+  const saved = await pool.query(
+    `UPDATE database_resources
+        SET backup_username=$3, backup_credential_ciphertext=$4, backup_credential_nonce=$5,
+            backup_credential_auth_tag=$6, backup_wrapped_dek=$7, backup_wrap_nonce=$8,
+            backup_wrap_auth_tag=$9, backup_key_version=$10, updated_at=now()
+      WHERE id=$1 AND project_id=$2 AND backup_username IS NULL
+        AND status IN ('ready','provisioning')`,
+    [resource.id, resource.project_id, identity.username, encrypted.ciphertext, encrypted.nonce,
+     encrypted.authTag, encrypted.wrappedDek, encrypted.wrapNonce, encrypted.wrapAuthTag, encrypted.keyVersion],
+  );
+  if (saved.rowCount !== 1) throw new Error("BACKUP_CREDENTIAL_STATE_CHANGED");
+  return identity;
 }
 
 async function renewJobLease(pool: Pool, job: ClaimedJob, leaseSeconds: number): Promise<boolean> {
@@ -191,23 +232,11 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
     if (identity.databaseName !== resource.database_name || identity.username !== resource.username) {
       throw new Error("PROVISIONING_IDENTITY_MISMATCH");
     }
-    if (!resource.backup_username || !resource.backup_ciphertext || !resource.backup_nonce
-      || !resource.backup_auth_tag || !resource.backup_wrapped_dek || !resource.backup_wrap_nonce
-      || !resource.backup_wrap_auth_tag || !resource.backup_key_version) {
-      throw new Error("BACKUP_CREDENTIAL_MISSING");
-    }
-    const backupPassword = decryptSecretString({
-      ciphertext: resource.backup_ciphertext,
-      nonce: resource.backup_nonce,
-      authTag: resource.backup_auth_tag,
-      wrappedDek: resource.backup_wrapped_dek,
-      wrapNonce: resource.backup_wrap_nonce,
-      wrapAuthTag: resource.backup_wrap_auth_tag,
-      keyVersion: resource.backup_key_version,
-      encryptionContextVersion: 2,
-    }, keyring, { projectId: resource.project_id, connectionId: resource.id });
-    const backupIdentity = createSharedDatabaseBackupIdentity(resource.project_id, resource.id, backupPassword);
-    if (backupIdentity.databaseName !== resource.database_name || backupIdentity.username !== resource.backup_username) {
+    const backupIdentity = job.operation === "delete" && !resource.backup_username
+      ? undefined
+      : await loadOrCreateBackupIdentity(pool, keyring, resource);
+    if (backupIdentity && (backupIdentity.databaseName !== resource.database_name
+      || (resource.backup_username && backupIdentity.username !== resource.backup_username))) {
       throw new Error("BACKUP_IDENTITY_MISMATCH");
     }
     adminClient = new MongoClient(adminUri, {
@@ -225,10 +254,14 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
     await adminClient.connect();
     if (job.operation === "provision") {
       await provisionSharedDatabaseUser(adminClient, identity);
+      if (!backupIdentity) throw new Error("BACKUP_CREDENTIAL_MISSING");
+      await provisionSharedDatabaseBackupUser(adminClient, backupIdentity);
+    } else if (job.operation === "backup_user") {
+      if (!backupIdentity) throw new Error("BACKUP_CREDENTIAL_MISSING");
       await provisionSharedDatabaseBackupUser(adminClient, backupIdentity);
     } else {
       await removeSharedDatabaseUser(adminClient, identity);
-      await removeSharedDatabaseBackupUser(adminClient, backupIdentity);
+      if (backupIdentity) await removeSharedDatabaseBackupUser(adminClient, backupIdentity);
       await adminClient.db(resource.database_name).dropDatabase();
     }
     if (leaseLost) throw new Error("PROVISIONING_LEASE_LOST");
