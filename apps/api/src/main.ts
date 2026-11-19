@@ -1,9 +1,11 @@
 import { createServer } from "node:http";
 import { createApp } from "./app.js";
 import { parseEnv } from "./config/env.js";
+import { createDatabasePool } from "./db/pool.js";
 
 const env = parseEnv(process.env);
-const app = createApp();
+const pool = env.DATABASE_URL ? createDatabasePool(env.DATABASE_URL) : undefined;
+const app = createApp({ pool, secureCookies: env.NODE_ENV === "production" });
 const server = createServer(app);
 
 server.listen(env.PORT, env.HOST, () => {
@@ -11,29 +13,31 @@ server.listen(env.PORT, env.HOST, () => {
 });
 
 let shuttingDown = false;
-
 function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
-
   process.stdout.write(`Received ${signal}; shutting down gracefully.\n`);
-
   const forceExit = setTimeout(() => {
     process.stderr.write("Graceful shutdown timed out. Forcing exit.\n");
     process.exit(1);
   }, 10_000);
   forceExit.unref();
 
-  server.close((error) => {
+  server.close(async (error) => {
     clearTimeout(forceExit);
+    try {
+      await pool?.end();
+    } catch {
+      process.stderr.write("PostgreSQL pool shutdown failed.\n");
+      process.exitCode = 1;
+    }
     if (error) {
       process.stderr.write("HTTP server shutdown failed.\n");
       process.exitCode = 1;
       return;
     }
-    process.exitCode = 0;
+    if (process.exitCode === undefined) process.exitCode = 0;
   });
 }
-
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
