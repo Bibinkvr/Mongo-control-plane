@@ -22,7 +22,7 @@ type AuthenticatedUser = {
 function setSessionCookie(response: Response, token: string, secure: boolean): void {
   const attributes = [
     `${COOKIE_NAME}=${token}`,
-    "Path=/api/auth",
+    "Path=/api",
     "HttpOnly",
     "SameSite=Lax",
     `Max-Age=${SESSION_DAYS * 24 * 60 * 60}`,
@@ -32,7 +32,7 @@ function setSessionCookie(response: Response, token: string, secure: boolean): v
 }
 
 function clearSessionCookie(response: Response, secure: boolean): void {
-  const attributes = [`${COOKIE_NAME}=`, "Path=/api/auth", "HttpOnly", "SameSite=Lax", "Max-Age=0"];
+  const attributes = [`${COOKIE_NAME}=`, "Path=/api", "HttpOnly", "SameSite=Lax", "Max-Age=0"];
   if (secure) attributes.push("Secure");
   response.append("Set-Cookie", attributes.join("; "));
 }
