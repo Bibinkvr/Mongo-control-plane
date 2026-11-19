@@ -23,7 +23,7 @@ function isAllowedIpv4(address: string, policy: MongoNetworkPolicy): boolean {
   if ((a === 100 && b! >= 64 && b! <= 127)
     || (a === 168 && b === 63 && c === 129 && p[3] === 16)
     || (a === 100 && b === 100 && c === 100 && p[3] === 200)) return false;
-  if (a === 192 && ((b === 0 && c === 0) || (b === 88 && c === 99))) return false;
+  if (a === 192 && ((b === 0 && (c === 0 || c === 2)) || (b === 88 && c === 99))) return false;
   if (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) return false;
   if (a === 203 && b === 0 && c === 113) return false;
   const privateAddress = a === 10 || (a === 172 && b! >= 16 && b! <= 31) || (a === 192 && b === 168);
