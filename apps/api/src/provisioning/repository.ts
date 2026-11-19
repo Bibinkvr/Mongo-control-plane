@@ -84,7 +84,6 @@ export async function createDatabaseProvisioningRequest(
     throw error;
   } finally {
     client.release();
-    password; // Keep the generated secret out of returned values and logs.
   }
 }
 
