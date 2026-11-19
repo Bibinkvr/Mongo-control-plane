@@ -10,7 +10,7 @@ describe("database connection URI reveal", () => {
       password,
       "mcp_1111111111111111_2222222222222222",
     );
-    expect(uri).toContain("mcp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:${password}@mongo-a.example.com:27017,mongo-b.example.com:27017/");
+    expect(uri).toContain(`mcp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:${password}@mongo-a.example.com:27017,mongo-b.example.com:27017/`);
     expect(uri).not.toContain("root");
     expect(uri).not.toContain("admin-secret");
     expect(uri).toContain("replicaSet=rs0");
