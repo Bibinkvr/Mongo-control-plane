@@ -126,7 +126,7 @@ export async function runMongodumpToEncryptedStorage(input: {
 
   try {
     await chmod(configDirectory, 0o700);
-    const yaml = `uri: ${JSON.stringify(input.uri)}\\n`;
+    const yaml = `uri: ${JSON.stringify(input.uri)}\n`;
     await writeFile(configPath, yaml, { encoding: "utf8", mode: 0o600, flag: "wx" });
     child = spawn(executable, [
       "--config", configPath,
