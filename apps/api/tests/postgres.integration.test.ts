@@ -284,6 +284,10 @@ integration("PostgreSQL schema and tenant isolation", () => {
     expect(renamed.status).toBe(200);
     expect(renamed.body.connection).toMatchObject({ name: "Primary Production", status: "disabled" });
 
+    await expect(loadConnectionCredential(db(), rotatedRing, {
+      caller: { userId: owner.rows[0]!.id, isPlatformAdmin: false }, projectId, connectionId,
+    })).rejects.toMatchObject({ code: "CONNECTION_DISABLED" });
+
     const invalidUpdate = await ownerApi.patch(`/api/projects/${projectId}/connections/${connectionId}`)
       .set("Cookie", ownerCookie).send({});
     expect(invalidUpdate.status).toBe(400);
