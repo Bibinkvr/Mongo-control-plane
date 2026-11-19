@@ -8,8 +8,8 @@ const defaultMigrationDirectory = fileURLToPath(new URL("../../migrations/", imp
 /** The runner owns the transaction; ignore legacy BEGIN/COMMIT wrappers in SQL files. */
 function migrationBody(contents: string): string {
   return contents
-    .replace(/^\\s*(?:--[^\\r\\n]*\\r?\\n\\s*)*(?:BEGIN|START TRANSACTION)\\s*;\\s*/i, "")
-    .replace(/\\s*(?:COMMIT|END)\\s*;\\s*(?:--[^\\r\\n]*\\s*)*$/i, "");
+    .replace(/^\s*(?:--[^\r\n]*\r?\n\s*)*(?:BEGIN|START TRANSACTION)\s*;\s*/i, "")
+    .replace(/\s*(?:COMMIT|END)\s*;\s*(?:--[^\r\n]*\s*)*$/i, "");
 }
 
 async function applyMigration(client: PoolClient, filename: string, contents: string): Promise<"applied" | "skipped"> {
@@ -61,7 +61,7 @@ export async function runMigrations(
 
     const results: Array<{ filename: string; outcome: "applied" | "skipped" }> = [];
     for (const filename of filenames) {
-      const contents = await readFile(`${migrationDirectory.replace(/[\\/]$/, "")}/${filename}`, "utf8");
+      const contents = await readFile(`${migrationDirectory.replace(/[\/]$/, "")}/${filename}`, "utf8");
       const outcome = await applyMigration(client, filename, contents);
       results.push({ filename, outcome });
     }
