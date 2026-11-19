@@ -95,15 +95,16 @@ export async function runMongodumpToEncryptedStorage(input: {
   }
   if (input.signal?.aborted) throw new DatabaseToolsError("BACKUP_CANCELLED", "Backup execution was cancelled.");
   parseMongoConnectionUri(input.uri);
+  const uriOptions = new URLSearchParams(input.uri.split("?")[1] ?? "");
+  if (uriOptions.get("tls") !== "true" && uriOptions.get("ssl") !== "true") {
+    throw new DatabaseToolsError("TOOL_FAILED", "Backup connections must explicitly enable TLS.");
+  }
 
   const executable = await resolveExecutable(input.executablePath);
   await verifyMongodumpVersion(executable);
 
   const configDirectory = await mkdtemp(join(tmpdir(), "mcp-mongodump-"));
-  await chmod(configDirectory, 0o700);
   const configPath = join(configDirectory, "mongodump.yaml");
-  const yaml = `uri: ${JSON.stringify(input.uri)}\n`;
-  await writeFile(configPath, yaml, { encoding: "utf8", mode: 0o600, flag: "wx" });
 
   let child: ChildProcess | undefined;
   let exitPromise: Promise<ExitResult> | undefined;
@@ -124,6 +125,9 @@ export async function runMongodumpToEncryptedStorage(input: {
   };
 
   try {
+    await chmod(configDirectory, 0o700);
+    const yaml = `uri: ${JSON.stringify(input.uri)}\\n`;
+    await writeFile(configPath, yaml, { encoding: "utf8", mode: 0o600, flag: "wx" });
     child = spawn(executable, [
       "--config", configPath,
       "--archive",
