@@ -20,7 +20,7 @@ const NONCE_BYTES = 12;
 const KEY_BYTES = 32;
 
 function aad(purpose: "secret" | "dek", version: number): Buffer {
-  return Buffer.from(`mongo-control-plane:connection:${purpose}:v1:key:${version}`, "utf8");
+  return Buffer.from(purpose === "secret"\n    ? "mongo-control-plane:connection:secret:v1"\n    : `mongo-control-plane:connection:dek:v1:key:${version}`, "utf8");
 }
 
 function getKey(keyring: EncryptionKeyring, version: number): Buffer {
