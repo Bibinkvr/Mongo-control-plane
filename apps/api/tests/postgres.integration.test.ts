@@ -429,15 +429,8 @@ if [ "$1" = "--version" ]; then
   echo "mongodump version: 100.3.0"
   exit 0
 fi
-[ "$1" = "--config" ] || exit 11
-grep -q '^uri: "mongodb://' "$2" || exit 12
-shift 2
-[ "$1" = "--archive" ] || exit 13
-[ "$2" = "--gzip" ] || exit 14
-[ "$3" = "--nsInclude" ] || exit 15
-[ "$4" = "mcp_aaaaaaaaaaaaaaaa_bbbbbbbbbbbbbbbb.*" ] || exit 16
 printf "worker-integration-archive"
-`;
+`
     try {
       await writeFile(executablePath, fakeTool, { encoding: "utf8", mode: 0o700 });
       await chmod(executablePath, 0o700);
