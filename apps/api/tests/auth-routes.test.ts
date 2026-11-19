@@ -3,7 +3,6 @@ import request from "supertest";
 import type { Pool } from "pg";
 import { createApp } from "../src/app.js";
 import { hashPassword } from "../src/auth/password.js";
-import { hashSessionToken } from "../src/auth/session.js";
 
 describe("authentication routes", () => {
   it("supports login, session identity, logout, and session revocation", async () => {
