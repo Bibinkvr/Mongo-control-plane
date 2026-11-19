@@ -52,16 +52,16 @@ export async function requestBackup(
       throw new BackupRequestError("FORBIDDEN", "Backup management permission is required.");
     }
 
-    const database = await client.query<{ connection_id: string; database_name: string; status: string }>(
-      "SELECT connection_id, database_name, status FROM database_resources WHERE id=$1 AND project_id=$2 FOR SHARE",
+    const database = await client.query<{ connection_id: string; database_name: string; status: string; backup_user_ready_at: Date | null }>(
+      "SELECT connection_id, database_name, status, backup_user_ready_at FROM database_resources WHERE id=$1 AND project_id=$2 FOR SHARE",
       [input.databaseId, input.projectId],
     );
     const targetDatabase = database.rows[0];
     if (!targetDatabase || targetDatabase.status === "deleted") {
       throw new BackupRequestError("DATABASE_NOT_FOUND", "The managed database was not found.");
     }
-    if (targetDatabase.status !== "ready") {
-      throw new BackupRequestError("DATABASE_NOT_READY", "The managed database must be ready before it can be backed up.");
+    if (targetDatabase.status !== "ready" || !targetDatabase.backup_user_ready_at) {
+      throw new BackupRequestError("DATABASE_NOT_READY", "The managed database and its read-only backup user must be ready before it can be backed up.");
     }
 
     const connection = await client.query<{ status: string }>(
