@@ -4,6 +4,8 @@ import type { Pool } from "pg";
 import { createAuthRouter } from "./auth/router.js";
 import { checkPostgres } from "./db/health.js";
 import { createProjectsRouter } from "./projects/router.js";
+import { createConnectionsRouter } from "./connections/router.js";
+import type { EncryptionKeyring } from "./connections/crypto.js";
 
 const notFoundHandler: RequestHandler = (_request, response) => {
   response.status(404).json({ error: { code: "NOT_FOUND", message: "The requested resource was not found." } });
@@ -25,6 +27,7 @@ const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _
 export type AppOptions = {
   pool?: Pool | undefined;
   secureCookies?: boolean;
+  encryptionKeyring?: EncryptionKeyring;
 };
 
 export function createApp(options: AppOptions = {}) {
@@ -50,6 +53,13 @@ export function createApp(options: AppOptions = {}) {
   if (options.pool) {
     app.use("/api/auth", createAuthRouter(options.pool, options.secureCookies ?? false));
     app.use("/api/projects", createProjectsRouter(options.pool));
+    if (options.encryptionKeyring) {
+      app.use("/api/projects", createConnectionsRouter(options.pool, options.encryptionKeyring));
+    } else {
+      app.use("/api/projects/:projectId/connections", (_request, response) => {
+        response.status(503).json({ error: { code: "ENCRYPTION_UNAVAILABLE", message: "Connection management is temporarily unavailable." } });
+      });
+    }
   } else {
     app.use("/api/auth", (_request, response) => {
       response.status(503).json({ error: { code: "DATABASE_UNAVAILABLE", message: "Authentication is temporarily unavailable." } });
