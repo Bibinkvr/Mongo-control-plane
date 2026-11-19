@@ -191,6 +191,11 @@ export function createProjectsRouter(pool: Pool): Router {
         "SELECT role FROM project_memberships WHERE project_id = $1 AND user_id = $2",
         [parsedId.data, user.id],
       );
+      if (!user.is_platform_admin && !access.rows[0]) {
+        await client.query("ROLLBACK");
+        response.status(404).json({ error: { code: "PROJECT_NOT_FOUND", message: "The project was not found." } });
+        return;
+      }
       if (!user.is_platform_admin && access.rows[0]?.role !== "project_admin") {
         await client.query("ROLLBACK");
         response.status(403).json({ error: { code: "FORBIDDEN", message: "Project administrator permission is required." } });
@@ -258,6 +263,11 @@ export function createProjectsRouter(pool: Pool): Router {
         "SELECT role FROM project_memberships WHERE project_id = $1 AND user_id = $2",
         [parsedId.data, user.id],
       );
+      if (!user.is_platform_admin && !access.rows[0]) {
+        await client.query("ROLLBACK");
+        response.status(404).json({ error: { code: "PROJECT_NOT_FOUND", message: "The project was not found." } });
+        return;
+      }
       if (!user.is_platform_admin && access.rows[0]?.role !== "project_admin") {
         await client.query("ROLLBACK");
         response.status(403).json({ error: { code: "FORBIDDEN", message: "Project administrator permission is required." } });
@@ -325,6 +335,11 @@ export function createProjectsRouter(pool: Pool): Router {
         "SELECT role FROM project_memberships WHERE project_id = $1 AND user_id = $2",
         [parsedId.data, user.id],
       );
+      if (!user.is_platform_admin && !access.rows[0]) {
+        await client.query("ROLLBACK");
+        response.status(404).json({ error: { code: "PROJECT_NOT_FOUND", message: "The project was not found." } });
+        return;
+      }
       if (!user.is_platform_admin && access.rows[0]?.role !== "project_admin") {
         await client.query("ROLLBACK");
         response.status(403).json({ error: { code: "FORBIDDEN", message: "Project administrator permission is required." } });
