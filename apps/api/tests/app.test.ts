@@ -12,11 +12,11 @@ describe("API foundation", () => {
     expect(response.body).toEqual({ status: "ok" });
   });
 
-  it("reports process readiness without claiming dependency checks", async () => {
+  it("does not report readiness when PostgreSQL is not configured", async () => {
     const response = await request(app).get("/health/ready");
 
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ status: "ready", checks: {} });
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({ status: "not_ready", checks: { postgres: "not_configured" } });
   });
 
   it("returns a consistent JSON 404 response", async () => {
