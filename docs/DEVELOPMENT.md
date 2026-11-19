@@ -193,7 +193,7 @@ The permission catalog is centralized in `apps/api/src/auth/permissions.ts`:
 | Connection management | Yes | No | No |
 | Database read | Yes | Yes | Yes |
 | Database write | Yes | Yes | No |
-| Database administration | Yes | No | No |\n| Use database credentials | Yes | Yes | No |
+| Database administration | Yes | No | No |\n| Use database credentials | Yes | No | No |
 | Backup read | Yes | Yes | Yes |
 | Backup management | Yes | No | No |
 | Audit read | Yes | No | No |
