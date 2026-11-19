@@ -127,7 +127,7 @@ export async function provisionSharedDatabaseUser(
       createUser: identity.username,
       pwd: identity.password,
       roles: userRoles(identity.databaseName),
-      customData: userMetadata(identity.resourceId),
+      customData: userMetadata(identity),
       mechanisms: ["SCRAM-SHA-256"],
       writeConcern: { w: "majority" },
     });
@@ -144,7 +144,7 @@ export async function provisionSharedDatabaseUser(
       updateUser: identity.username,
       pwd: identity.password,
       roles: userRoles(identity.databaseName),
-      customData: userMetadata(identity.resourceId),
+      customData: userMetadata(identity),
       mechanisms: ["SCRAM-SHA-256"],
       writeConcern: { w: "majority" },
     });
@@ -163,7 +163,7 @@ export async function removeSharedDatabaseUser(
   if (existing === undefined) {
     return { databaseName: identity.databaseName, username: identity.username, removed: false };
   }
-  if (!isManagedUser(existing, identity.resourceId)) {
+  if (!isManagedUser(existing, identity)) {
     throw new Error("Refusing to remove a MongoDB user not owned by this resource.");
   }
   await target.command({
