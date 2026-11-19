@@ -15,12 +15,14 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [ ] Structured, secret-redacting application logging
 
 ## Phase 1 — Identity and project control
-- [ ] Authentication and secure session lifecycle
+- [x] Password login, logout, hashed opaque sessions, and one-time admin bootstrap (implementation; verification pending)
+- [ ] Production rate limiting, CSRF/origin policy, session cleanup, and security review
 - [x] Initial PostgreSQL schema for users, sessions, projects, memberships, and audit events\n- [ ] Users, roles, permissions
 - [ ] Projects and environments
 - [ ] Server-side tenant isolation
 - [x] Append-only audit-event table with mutation guard trigger
-- [ ] Integration and authorization tests
+- [ ] Real PostgreSQL integration and cross-project authorization tests
+- [x] Auth route and session-helper test coverage (CI verification pending)
 
 ## Phase 2 — Connection and secret management
 - [ ] Connection target registry
