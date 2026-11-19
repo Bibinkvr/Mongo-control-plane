@@ -6,9 +6,13 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] Repository identity and MIT licence
 - [x] Architecture and trust-boundary specification
 - [x] Security requirements and threat checklist
-- [ ] Monorepo workspace and pinned toolchain
-- [ ] CI: lint, typecheck, unit tests, dependency audit
+- [x] Initial npm workspace and strict TypeScript configuration
+- [x] API process bootstrap, environment validation, and health endpoints
+- [x] API unit tests and GitHub Actions CI workflow definition
+- [ ] Generate and commit npm lockfile
+- [ ] Execute CI successfully and resolve any failures
 - [ ] Local development Compose stack
+- [ ] Structured, secret-redacting application logging
 
 ## Phase 1 — Identity and project control
 - [ ] Authentication and secure session lifecycle
