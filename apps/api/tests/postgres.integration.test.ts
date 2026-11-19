@@ -368,18 +368,30 @@ integration("PostgreSQL schema and tenant isolation", () => {
       keyring,
       { projectId, connectionId: databaseId },
     );
+    const backupUsername = `bkp_${databaseId.replaceAll("-", "")}`;
+    const encryptedBackupPassword = encryptSecretString(
+      "backup-readonly-user-password-strong",
+      keyring,
+      { projectId, connectionId: databaseId },
+    );
     await db().query(
       `INSERT INTO database_resources
         (id, project_id, connection_id, name, database_name, username,
          credential_ciphertext, credential_nonce, credential_auth_tag, wrapped_dek,
-         wrap_nonce, wrap_auth_tag, key_version, encryption_context_version, status, created_by)
+         wrap_nonce, wrap_auth_tag, key_version, encryption_context_version,
+         backup_username, backup_credential_ciphertext, backup_credential_nonce,
+         backup_credential_auth_tag, backup_wrapped_dek, backup_wrap_nonce,
+         backup_wrap_auth_tag, backup_key_version, status, created_by)
        VALUES ($1,$2,$3,'Backup Database','mcp_aaaaaaaaaaaaaaaa_bbbbbbbbbbbbbbbb',
-         'mcp_cccccccccccccccccccccccccccccccc',$4,$5,$6,$7,$8,$9,$10,2,'ready',$11)`,
+         'mcp_cccccccccccccccccccccccccccccccc',$4,$5,$6,$7,$8,$9,$10,2,
+         $11,$12,$13,$14,$15,$16,$17,$18,'ready',$19)`,
       [databaseId, projectId, connectionId, encryptedPassword.ciphertext, encryptedPassword.nonce,
        encryptedPassword.authTag, encryptedPassword.wrappedDek, encryptedPassword.wrapNonce,
-       encryptedPassword.wrapAuthTag, encryptedPassword.keyVersion, owner.rows[0]!.id],
+       encryptedPassword.wrapAuthTag, encryptedPassword.keyVersion, backupUsername,
+       encryptedBackupPassword.ciphertext, encryptedBackupPassword.nonce, encryptedBackupPassword.authTag,
+       encryptedBackupPassword.wrappedDek, encryptedBackupPassword.wrapNonce, encryptedBackupPassword.wrapAuthTag,
+       encryptedBackupPassword.keyVersion, owner.rows[0]!.id],
     );
-
     const ownerApi = request(createApp({ pool: db(), encryptionKeyring: keyring }));
     const readerApi = request(createApp({ pool: db(), encryptionKeyring: keyring }));
     const queued = await ownerApi.post(`/api/projects/${projectId}/backups`)
