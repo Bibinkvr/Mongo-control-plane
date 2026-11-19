@@ -50,7 +50,7 @@ function parseIds(request: Request, response: Response): { projectId: string; da
 function validDocument(document: unknown): document is Record<string, unknown> {
   if (!isSafeDocument(document)) return false;
   if (Object.prototype.hasOwnProperty.call(document, "_id")) return false;
-  return Buffer.byteLength(JSON.stringify(document), "utf8") <= MAX_DOCUMENT_BYTES;
+  return jsonByteLength(document) <= MAX_DOCUMENT_BYTES;
 }
 
 export function createWorkspaceRouter(pool: Pool, keyring: EncryptionKeyring, policy: WorkspacePolicy = {}): Router {
