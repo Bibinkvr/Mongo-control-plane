@@ -2,9 +2,9 @@
 
 ## Current implementation status
 
-The API does not yet expose backup scheduling, backup jobs, restore endpoints, retention policies, or a backup UI. The current code adds only the encrypted file-storage primitive in `apps/api/src/backups/encrypted-storage.ts`. It is not an end-to-end backup system and must not be described as production backup capability.
+The API exposes authenticated backup request and inventory endpoints, backed by PostgreSQL metadata and a durable job queue. Requests are queued transactionally and audited. The worker that executes `mongodump`, restore endpoints, retention policies, scheduling, and a backup UI are not implemented. The current system cannot yet produce a usable backup and must not be described as an end-to-end or production backup service.
 
-## Storage envelope
+## Backup request API\n\n- `POST /api/projects/:projectId/backups` queues a backup request for a configured connection. It returns HTTP 202 with a backup ID and job ID. It does not run a dump in the API process.\n- `GET /api/projects/:projectId/backups` lists backup metadata (maximum 100 rows per request).\n- `GET /api/projects/:projectId/backups/:backupId` returns one project-scoped backup record.\n- `backup:manage` is required to queue a backup; `backup:read` is required to list or inspect. Project membership is checked server-side. The caller cannot provide a storage path, MongoDB URI, executable, or shell arguments.\n- Backup record and job creation plus the audit event are committed in one PostgreSQL transaction. The queue uses a separate `backup_jobs` table with lease fields for a future worker.\n- API responses intentionally omit storage keys and encryption envelope metadata.\n\n## Storage envelope
 
 Each backup object is identified by a project UUID and backup UUID. The storage path is derived from those identifiers; clients never provide filesystem paths.
 
