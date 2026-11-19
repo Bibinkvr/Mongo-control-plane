@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import type { PoolClient } from "pg";
 import { createDatabasePool } from "../db/pool.js";
 
@@ -58,7 +59,7 @@ async function main(): Promise<void> {
         .sort((left, right) => left.localeCompare(right, "en"));
 
       for (const filename of filenames) {
-        const contents = await readFile(new URL(filename, `file://${migrationDirectory}/`), "utf8");
+        const contents = await readFile(join(migrationDirectory, filename), "utf8");
         const outcome = await applyMigration(client, filename, contents);
         process.stdout.write(`${outcome === "applied" ? "Applied" : "Skipped"} ${filename}\n`);
       }
