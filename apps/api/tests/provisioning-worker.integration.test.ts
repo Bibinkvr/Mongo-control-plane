@@ -6,6 +6,7 @@ import { encryptConnectionUri, decryptSecretString, type EncryptedConnectionSecr
 import { createDatabaseProvisioningRequest } from "../src/provisioning/repository.js";
 import { processNextProvisioningJob } from "../src/provisioning/worker.js";
 import { removeSharedDatabaseUser } from "../src/provisioning/shared-mongodb.js";
+import { revealDatabaseConnectionUri } from "../src/provisioning/credentials.js";
 import { hashPassword } from "../src/auth/password.js";
 import { runMigrations } from "../src/db/migrations.js";
 
@@ -74,6 +75,13 @@ integration("database provisioning worker integration", () => {
 
     const status = await pool.query<{ status: string }>("SELECT status FROM database_resources WHERE id=$1", [resource.id]);
     expect(status.rows[0]?.status).toBe("ready");
+
+    const revealedUri = await revealDatabaseConnectionUri(pool, keyring, {
+      caller: { userId: user.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+    });
+    expect(revealedUri).toContain("authMechanism=SCRAM-SHA-256");
+    expect(revealedUri).toContain("tls=true");
+    expect(revealedUri).not.toContain("rootpassword");
 
     const adminClient = new MongoClient(mongoUri, { serverSelectionTimeoutMS: 5_000 });
     const appUri = new URL(mongoUri);
