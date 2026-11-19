@@ -9,7 +9,7 @@ const defaultMigrationDirectory = fileURLToPath(new URL("../../migrations/", imp
 function migrationBody(contents: string): string {
   return contents
     .replace(/^\s*(?:--[^\r\n]*\r?\n\s*)*(?:BEGIN|START TRANSACTION)\s*;\s*/i, "")
-    .replace(/\s*(?:COMMIT|END)\s*;\s*(?:--[^\r\n]*\s*)*$/i, "");
+    .replace(/\s*COMMIT\s*;\s*(?:--[^\r\n]*\s*)*$/i, "");
 }
 
 async function applyMigration(client: PoolClient, filename: string, contents: string): Promise<"applied" | "skipped"> {
