@@ -137,3 +137,23 @@ Project membership administration is also available:
 Only a project administrator or platform administrator can change membership. Mutations lock the project row in a transaction, re-check the caller's role, and prevent removing or downgrading the final project administrator. Membership changes and their audit events are committed together. Project and authentication responses set `Cache-Control: no-store`.
 
 Fine-grained permission catalogs and real-world authorization testing for all project operations remain future work; these roles are currently coarse project-level roles.
+
+## Project permission matrix
+
+The permission catalog is centralized in `apps/api/src/auth/permissions.ts`:
+
+| Permission | Project admin | Developer | Read-only |
+|---|---:|---:|---:|
+| Project read | Yes | Yes | Yes |
+| Member list | Yes | Yes | Yes |
+| Member management | Yes | No | No |
+| Connection metadata read | Yes | Yes | Yes |
+| Connection management | Yes | No | No |
+| Database read | Yes | Yes | Yes |
+| Database write | Yes | Yes | No |
+| Database administration | Yes | No | No |
+| Backup read | Yes | Yes | Yes |
+| Backup management | Yes | No | No |
+| Audit read | Yes | No | No |
+
+Platform administrators bypass project-level permission checks. New protected modules should call `hasProjectPermission` on a membership role obtained from the database; never accept a role or permission list from the request body.
