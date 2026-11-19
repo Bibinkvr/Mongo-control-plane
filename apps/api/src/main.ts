@@ -11,6 +11,10 @@ const app = createApp({
   pool,
   secureCookies: env.NODE_ENV === "production",
   ...(encryptionKeyring ? { encryptionKeyring } : {}),
+  mongoNetworkPolicy: {
+    allowPrivateNetworks: env.MONGODB_ALLOW_PRIVATE_NETWORKS,
+    allowLoopback: env.MONGODB_ALLOW_LOOPBACK,
+  },
 });
 const server = createServer(app);
 
