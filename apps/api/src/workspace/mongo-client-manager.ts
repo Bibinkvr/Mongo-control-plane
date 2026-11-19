@@ -3,11 +3,13 @@ import { MongoClient, type Db, type MongoClientOptions } from "mongodb";
 
 type ClientEntry = {
   key: string;
+  identity: string;
   client: MongoClient;
   connected: Promise<void>;
   leases: number;
   lastUsedAt: number;
   closing: boolean;
+  retiring: boolean;
   drainWaiters: Array<() => void>;
 };
 
@@ -82,9 +84,16 @@ export class MongoClientManager {
         leases: 0,
         lastUsedAt: Date.now(),
           closing: false,
+          retiring: false,
           drainWaiters: [],
         };
         this.entries.set(key, entry);
+        for (const previous of this.entries.values()) {
+          if (previous.identity === identity && previous.key !== key) {
+            previous.retiring = true;
+            if (previous.leases === 0) void this.closeEntry(previous);
+          }
+        }
         void entry.connected.catch(async () => {
           if (this.entries.get(key) === entry) this.entries.delete(key);
           entry!.closing = true;
@@ -102,6 +111,7 @@ export class MongoClientManager {
     } finally {
       entry.leases = Math.max(0, entry.leases - 1);
       entry.lastUsedAt = Date.now();
+      if (entry.leases === 0 && entry.retiring) void this.closeEntry(entry);
       if (this.closed && entry.leases === 0) {
         for (const resolve of entry.drainWaiters.splice(0)) resolve();
       }
