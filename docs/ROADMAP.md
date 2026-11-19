@@ -18,7 +18,8 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] Password login, logout, hashed opaque sessions, and one-time admin bootstrap (implementation; verification pending)
 - [ ] Production rate limiting, CSRF/origin policy, session cleanup, and security review
 - [x] Initial PostgreSQL schema for users, sessions, projects, memberships, and audit events\n- [ ] Users, roles, permissions
-- [ ] Projects and environments
+- [x] Authenticated project list, creation, and detail endpoints with membership-scoped SQL (real-DB verification pending)
+- [ ] Project membership administration and environments
 - [ ] Server-side tenant isolation
 - [x] Append-only audit-event table with mutation guard trigger
 - [ ] Real PostgreSQL integration and cross-project authorization tests
