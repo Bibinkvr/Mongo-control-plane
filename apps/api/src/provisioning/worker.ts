@@ -9,7 +9,7 @@ import { createSafeMongoLookup } from "./network-guard.js";
 type ClaimedJob = { id: string; project_id: string; resource_id: string; lock_token: string; attempt_count: number; max_attempts: number };
 type ResourceRow = EncryptedConnectionSecret & {
   id: string; project_id: string; connection_id: string; database_name: string; username: string;
-  created_by: string | null; encryptionContextVersion: 1 | 2;
+  created_by: string | null; created_by_is_platform_admin: boolean | null; encryptionContextVersion: 1 | 2;
 };
 export type ProvisioningWorkerOptions = {
   pollIntervalMs?: number;
@@ -26,8 +26,9 @@ async function claimJob(pool: Pool, leaseSeconds: number): Promise<ClaimedJob | 
     const result = await client.query<ClaimedJob>(
       `WITH candidate AS (
          SELECT id FROM provisioning_jobs
-          WHERE (status = 'queued' AND available_at <= now())
-             OR (status = 'running' AND lease_expires_at < now())
+          WHERE operation = 'provision'
+            AND ((status = 'queued' AND available_at <= now())
+              OR (status = 'running' AND lease_expires_at < now()))
           ORDER BY available_at, created_at
           FOR UPDATE SKIP LOCKED
           LIMIT 1
@@ -116,13 +117,15 @@ async function failJob(pool: Pool, job: ClaimedJob, actorId: string | null): Pro
 
 async function loadResource(pool: Pool, job: ClaimedJob): Promise<ResourceRow> {
   const result = await pool.query<ResourceRow>(
-    `SELECT id, project_id, connection_id, database_name, username, created_by,
-            credential_ciphertext AS ciphertext, credential_nonce AS nonce,
-            credential_auth_tag AS "authTag", wrapped_dek AS "wrappedDek",
-            wrap_nonce AS "wrapNonce", wrap_auth_tag AS "wrapAuthTag",
-            key_version AS "keyVersion", encryption_context_version AS "encryptionContextVersion"
-       FROM database_resources
-      WHERE id=$1 AND project_id=$2 AND status='provisioning'`,
+    `SELECT r.id, r.project_id, r.connection_id, r.database_name, r.username, r.created_by,
+            u.is_platform_admin AS created_by_is_platform_admin,
+            r.credential_ciphertext AS ciphertext, r.credential_nonce AS nonce,
+            r.credential_auth_tag AS "authTag", r.wrapped_dek AS "wrappedDek",
+            r.wrap_nonce AS "wrapNonce", r.wrap_auth_tag AS "wrapAuthTag",
+            r.key_version AS "keyVersion", r.encryption_context_version AS "encryptionContextVersion"
+       FROM database_resources r
+       LEFT JOIN users u ON u.id = r.created_by
+      WHERE r.id=$1 AND r.project_id=$2 AND r.status='provisioning'`,
     [job.resource_id, job.project_id],
   );
   const row = result.rows[0];
@@ -140,7 +143,7 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
     actorId = createdBy;
     const password = decryptSecretString(resource, keyring, { projectId: resource.project_id, connectionId: resource.id });
     const adminUri = await loadConnectionCredential(pool, keyring, {
-      caller: { userId: createdBy, isPlatformAdmin: false },
+      caller: { userId: createdBy, isPlatformAdmin: resource.created_by_is_platform_admin === true },
       projectId: resource.project_id,
       connectionId: resource.connection_id,
     });
