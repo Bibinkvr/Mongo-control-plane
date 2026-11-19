@@ -22,10 +22,10 @@ describe("database connection URI reveal", () => {
     const uri = buildDatabaseConnectionUri(
       "mongodb+srv://cluster.example.com/admin?retryWrites=true",
       "app-user",
-      "secret@with:reserved/chars",
+      "secret@with:reserved/chars-12345678",
       "mcp_1111111111111111_2222222222222222",
     );
-    expect(uri).toContain("mongodb+srv://app-user:secret%40with%3Areserved%2Fchars@cluster.example.com/");
+    expect(uri).toContain("mongodb+srv://app-user:secret%40with%3Areserved%2Fchars-12345678@cluster.example.com/");
     expect(uri).toContain("tls=true");
   });
 
