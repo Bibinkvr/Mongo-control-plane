@@ -4,6 +4,7 @@ export const PROJECT_PERMISSIONS = [
   "members:manage",
   "connection:read",
   "connection:manage",
+  "connection:use",
   "database:read",
   "database:write",
   "database:admin",
@@ -18,7 +19,7 @@ export type ProjectRole = "project_admin" | "developer" | "read_only" | "platfor
 const ROLE_PERMISSIONS: Record<Exclude<ProjectRole, "platform_admin">, ReadonlySet<ProjectPermission>> = {
   project_admin: new Set(PROJECT_PERMISSIONS),
   developer: new Set([
-    "project:read", "members:read", "connection:read",
+    "project:read", "members:read", "connection:read", "connection:use",
     "database:read", "database:write", "backup:read",
   ]),
   read_only: new Set([
