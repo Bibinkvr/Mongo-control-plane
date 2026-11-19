@@ -157,6 +157,11 @@ export function isSafeCollectionName(name: string): boolean {
     && !name.includes("$");
 }
 
+function jsonByteLength(value: unknown): number {
+  const serialized = JSON.stringify(value);
+  return typeof serialized === "string" ? Buffer.byteLength(serialized, "utf8") : Number.MAX_SAFE_INTEGER;
+}
+
 export function isSafeDocument(value: unknown, depth = 0): value is Document {
   if (depth > 20 || typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const visit = (item: unknown, level: number): boolean => {
