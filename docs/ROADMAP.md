@@ -11,13 +11,14 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] API unit tests and GitHub Actions CI workflow definition
 - [ ] Generate and commit npm lockfile
 - [x] Execute GitHub Actions CI successfully (typecheck, build, and tests)
-- [ ] Local development Compose stack
+- [x] Local development Compose stack (PostgreSQL, MongoDB, Redis; loopback-only ports)
 - [ ] Structured, secret-redacting application logging
 
 ## Phase 1 — Identity and project control
 - [x] Password login, logout, hashed opaque sessions, and one-time admin bootstrap (CI verified; PostgreSQL integration pending)
 - [ ] Production rate limiting, CSRF/origin policy, session cleanup, and security review
 - [x] Initial PostgreSQL schema for users, sessions, projects, memberships, and audit events
+- [x] Checksum-verified, advisory-lock-protected migration runner
 - [ ] Users, roles, permissions
 - [x] Authenticated project list, creation, and detail endpoints with membership-scoped SQL (real-DB verification pending)
 - [ ] Project membership administration and environments
