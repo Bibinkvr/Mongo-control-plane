@@ -276,7 +276,8 @@ integration("PostgreSQL schema and tenant isolation", () => {
       wrapNonce: afterRotation.rows[0]!.wrap_nonce,
       wrapAuthTag: afterRotation.rows[0]!.wrap_auth_tag,
       keyVersion: afterRotation.rows[0]!.key_version,
-    }, rotatedRing)).toBe(uri);
+      encryptionContextVersion: 2,
+    }, rotatedRing, { projectId, connectionId })).toBe(uri);
 
     const renamed = await ownerApi.patch(`/api/projects/${projectId}/connections/${connectionId}`)
       .set("Cookie", ownerCookie).send({ name: "Primary Production", status: "disabled" });
