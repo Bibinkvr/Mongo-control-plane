@@ -12,7 +12,7 @@ export type CreateDatabaseRequest = {
   name: string;
 };
 export class ProvisioningRequestError extends Error {
-  constructor(public readonly code: "PROJECT_NOT_FOUND" | "FORBIDDEN" | "CONNECTION_NOT_FOUND" | "CONNECTION_DISABLED" | "INVALID_CONNECTION_KIND" | "RESOURCE_NAME_TAKEN", message: string) {
+  constructor(public readonly code: "PROJECT_NOT_FOUND" | "FORBIDDEN" | "CONNECTION_NOT_FOUND" | "CONNECTION_DISABLED" | "INVALID_CONNECTION_KIND" | "RESOURCE_NAME_TAKEN" | "DATABASE_NOT_FOUND" | "DATABASE_NOT_READY" | "CONFIRMATION_MISMATCH" | "DATABASE_OPERATION_ACTIVE", message: string) {
     super(message);
     this.name = "ProvisioningRequestError";
   }
@@ -105,8 +105,70 @@ export async function listProjectDatabases(
   const result = await pool.query(
     `SELECT id, name, database_name AS "databaseName", username, status,
             last_error_code AS "lastErrorCode", created_at AS "createdAt", updated_at AS "updatedAt"
-       FROM database_resources WHERE project_id = $1 ORDER BY created_at DESC`,
+       FROM database_resources WHERE project_id = $1 AND status <> 'deleted' ORDER BY created_at DESC`,
     [projectId],
   );
   return result.rows;
+}
+
+export async function requestDatabaseDeletion(
+  pool: Pool,
+  input: { caller: ProvisioningCaller; projectId: string; databaseId: string; confirmDatabaseName: string },
+): Promise<{ id: string; databaseName: string; status: "deleting"; jobId: string }> {
+  const jobId = randomUUID();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const access = await client.query<{ role: string }>(
+      `SELECT CASE WHEN u.is_platform_admin THEN 'platform_admin' ELSE pm.role END AS role
+         FROM projects p
+         JOIN users u ON u.id = $2
+         LEFT JOIN project_memberships pm ON pm.project_id = p.id AND pm.user_id = u.id
+        WHERE p.id = $1 AND (u.is_platform_admin OR pm.user_id IS NOT NULL)
+        FOR UPDATE OF p`,
+      [input.projectId, input.caller.userId],
+    );
+    const role = access.rows[0]?.role;
+    if (!role) throw new ProvisioningRequestError("PROJECT_NOT_FOUND", "The project was not found.");
+    if (!hasProjectPermission(role, "database:admin")) {
+      throw new ProvisioningRequestError("FORBIDDEN", "Database administration permission is required.");
+    }
+    const selected = await client.query<{ database_name: string; status: string }>(
+      "SELECT database_name, status FROM database_resources WHERE id=$1 AND project_id=$2 FOR UPDATE",
+      [input.databaseId, input.projectId],
+    );
+    const resource = selected.rows[0];
+    if (!resource || resource.status === "deleted") {
+      throw new ProvisioningRequestError("DATABASE_NOT_FOUND", "The database resource was not found.");
+    }
+    if (resource.database_name !== input.confirmDatabaseName) {
+      throw new ProvisioningRequestError("CONFIRMATION_MISMATCH", "The confirmation name does not match this database.");
+    }
+    if (resource.status !== "ready" && resource.status !== "failed") {
+      throw new ProvisioningRequestError("DATABASE_NOT_READY", "The database must be ready or failed before deletion can be queued.");
+    }
+    await client.query(
+      "UPDATE database_resources SET status='deleting', last_error_code=NULL, updated_at=now() WHERE id=$1",
+      [input.databaseId],
+    );
+    await client.query(
+      "INSERT INTO provisioning_jobs (id, project_id, resource_id, operation, status) VALUES ($1,$2,$3,'delete','queued')",
+      [jobId, input.projectId, input.databaseId],
+    );
+    await client.query(
+      `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
+       VALUES ($1,$2,'database.delete.request','database',$3,jsonb_build_object('databaseName',$4::text))`,
+      [input.caller.userId, input.projectId, input.databaseId, resource.database_name],
+    );
+    await client.query("COMMIT");
+    return { id: input.databaseId, databaseName: resource.database_name, status: "deleting", jobId };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
+      throw new ProvisioningRequestError("DATABASE_OPERATION_ACTIVE", "A database operation is already active.");
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 }
