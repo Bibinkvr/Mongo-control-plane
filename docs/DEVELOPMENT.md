@@ -46,7 +46,7 @@ The API listens on `127.0.0.1:5000` by default. Override `HOST` and `PORT` throu
 
 - The web portal/UI has not been implemented. The current workspace is an API.
 - The workspace supports collection list/create/drop, document insert/update/delete, bounded document paging, and index list/create/drop. Query filters, custom sorting/projection, aggregation, schema sampling, and import/export are not yet exposed.
-- The workspace opens a bounded MongoDB client per request. Connection-pool reuse and per-project connection limits remain future work.
+- The workspace reuses process-local MongoDB client pools keyed by database resource and a one-way credential fingerprint. Pools are capped at 100 clients per API process, use bounded pool/queue/timeouts, and close after 60 seconds idle. This is a per-process cap, not a distributed per-project quota.
 - Dedicated MongoDB deployments, Atlas administration, backups, restore, metrics, and alerts are not implemented.
 - Production rate limiting, CSRF/origin policy, structured secret-redacting logs, lockfile reproducibility, KMS integration, quotas, and operational key-rotation runbooks remain release gates.
 - The API readiness endpoint checks PostgreSQL only; it is not a production readiness guarantee.
@@ -216,4 +216,4 @@ The workspace uses the generated database-scoped application account. It does no
 - `POST /api/projects/:projectId/databases/:databaseId/collections/:collectionName/indexes` — create a bounded index, JSON `{ "keys": { "email": 1 }, "unique": true }` (`database:admin`).
 - `DELETE /api/projects/:projectId/databases/:databaseId/collections/:collectionName/indexes/:indexName` — drop a non-`_id_` index (`database:admin`).
 
-The workspace uses TLS, bounded MongoDB timeouts, DNS-pinned egress checks and PostgreSQL row locks while an operation runs. The locks prevent database deletion, credential rotation, or connection removal from racing active workspace operations. Project admins may reveal the application URI; developers and read-only members use the permission-checked workspace API without receiving the URI. The API currently opens a bounded MongoDB client for each request; connection-pool reuse is a later performance optimization.
+The workspace uses TLS, bounded MongoDB timeouts, DNS-pinned egress checks and PostgreSQL row locks while an operation runs. The locks prevent database deletion, credential rotation, or connection removal from racing active workspace operations. Project admins may reveal the application URI; developers and read-only members use the permission-checked workspace API without receiving the URI. The API reuses a bounded MongoDB client pool per database resource and credential version. Credential changes use a distinct pool; old pools drain active operations and are closed when idle. Pools are closed during graceful API shutdown.
