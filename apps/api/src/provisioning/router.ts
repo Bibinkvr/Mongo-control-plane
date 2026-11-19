@@ -4,7 +4,7 @@ import type { Pool } from "pg";
 import { resolveSession } from "../auth/router.js";
 import type { EncryptionKeyring } from "../connections/crypto.js";
 import { createDatabaseProvisioningRequest, listProjectDatabases, ProvisioningRequestError } from "./repository.js";
-import { DatabaseCredentialError, revealDatabaseConnectionUri } from "./credentials.js";
+import { DatabaseCredentialError, revealDatabaseConnectionUri, rotateDatabaseCredentialKey } from "./credentials.js";
 
 function sendProvisioningError(error: unknown, response: Response, next: NextFunction): void {
   if (error instanceof ProvisioningRequestError || error instanceof DatabaseCredentialError) {
@@ -50,6 +50,24 @@ export function createDatabasesRouter(pool: Pool, keyring: EncryptionKeyring): R
         projectId: projectId.data, connectionId: body.data.connectionId, name: body.data.name,
       });
       response.status(202).json({ database });
+    } catch (error) { sendProvisioningError(error, response, next); }
+  });
+
+
+  router.post("/:projectId/databases/:databaseId/rotate-key", async (request, response, next) => {
+    const projectId = z.string().uuid().safeParse(request.params["projectId"]);
+    const databaseId = z.string().uuid().safeParse(request.params["databaseId"]);
+    if (!projectId.success || !databaseId.success) {
+      response.status(400).json({ error: { code: "INVALID_ID", message: "A project or database ID is invalid." } });
+      return;
+    }
+    try {
+      const result = await rotateDatabaseCredentialKey(pool, keyring, {
+        caller: response.locals["databaseCaller"] as { userId: string; isPlatformAdmin: boolean },
+        projectId: projectId.data,
+        databaseId: databaseId.data,
+      });
+      response.status(200).json(result);
     } catch (error) { sendProvisioningError(error, response, next); }
   });
 
