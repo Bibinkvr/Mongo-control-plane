@@ -14,6 +14,7 @@ export class DatabaseToolsError extends Error {
   constructor(
     public readonly code: "TOOL_UNAVAILABLE" | "TOOL_VERSION_UNSUPPORTED" | "TOOL_TIMEOUT" | "TOOL_FAILED" | "BACKUP_CANCELLED",
     message: string,
+    public readonly diagnosticCode?: string,
   ) {
     super(message);
     this.name = "DatabaseToolsError";
@@ -164,7 +165,7 @@ export async function runMongodumpToEncryptedStorage(input: {
     const [stored, exit] = await Promise.all([storagePromise, exitPromise]);
     if (timedOut) throw new DatabaseToolsError("TOOL_TIMEOUT", "mongodump exceeded its execution deadline.");
     if (cancelled) throw new DatabaseToolsError("BACKUP_CANCELLED", "Backup execution was cancelled.");
-    if (exit.code !== 0) throw new DatabaseToolsError("TOOL_FAILED", `mongodump exited with code ${exit.code ?? "unknown"}.`);
+    if (exit.code !== 0) throw new DatabaseToolsError("TOOL_FAILED", "mongodump exited unsuccessfully.", `EXIT_${exit.code ?? "UNKNOWN"}`);
     return stored;
   } catch (error) {
     terminate();
@@ -175,7 +176,10 @@ export async function runMongodumpToEncryptedStorage(input: {
     if (error instanceof DatabaseToolsError) throw error;
     if (timedOut) throw new DatabaseToolsError("TOOL_TIMEOUT", "mongodump exceeded its execution deadline.");
     if (cancelled) throw new DatabaseToolsError("BACKUP_CANCELLED", "Backup execution was cancelled.");
-    throw new DatabaseToolsError("TOOL_FAILED", "mongodump failed; no backup was published.");
+    const diagnosticCode = typeof error === "object" && error !== null && "code" in error
+      && typeof error.code === "string" ? error.code
+      : error instanceof Error ? error.name : "UNKNOWN";
+    throw new DatabaseToolsError("TOOL_FAILED", "mongodump or encrypted storage failed.", diagnosticCode);
   } finally {
     if (timeoutTimer) clearTimeout(timeoutTimer);
     if (killTimer) clearTimeout(killTimer);
