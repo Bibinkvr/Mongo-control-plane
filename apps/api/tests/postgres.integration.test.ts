@@ -297,10 +297,6 @@ integration("PostgreSQL schema and tenant isolation", () => {
       caller: { userId: owner.rows[0]!.id, isPlatformAdmin: false }, projectId, connectionId,
     })).rejects.toMatchObject({ code: "CONNECTION_DISABLED" });
 
-    await expect(loadConnectionCredential(db(), rotatedRing, {
-      caller: { userId: owner.rows[0]!.id, isPlatformAdmin: false }, projectId, connectionId,
-    })).rejects.toMatchObject({ code: "CONNECTION_DISABLED" });
-
     const invalidUpdate = await ownerApi.patch(`/api/projects/${projectId}/connections/${connectionId}`)
       .set("Cookie", ownerCookie).send({});
     expect(invalidUpdate.status).toBe(400);
