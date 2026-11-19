@@ -49,6 +49,9 @@ describe("connection secret envelope encryption", () => {
     expect(parseMongoConnectionUri("mongodb+srv://cluster.example.com/app").hostLabel).toBe("cluster.example.com");
     expect(() => parseMongoConnectionUri("https://example.com")).toThrow();
     expect(() => parseMongoConnectionUri("mongodb+srv://cluster.example.com:27017/app")).toThrow();
+    expect(parseMongoConnectionUri("mongodb://node-a.example.com:27017,node-b.example.com:27017/app").hostLabel).toBe("node-a.example.com");
+    expect(parseMongoConnectionUri("mongodb://[2001:4860:4860::8888]:27017/app").hostLabel).toBe("[2001:4860:4860::8888]");
+    expect(() => parseMongoConnectionUri("mongodb+srv://a.example.com,b.example.com/app")).toThrow();
     expect(() => parseMongoConnectionUri("mongodb://db.example.com/app?tls=false")).toThrow(/disable TLS/);
     expect(() => parseMongoConnectionUri("mongodb://db.example.com/app?tlsAllowInvalidCertificates=true")).toThrow(/certificate/);
   });
