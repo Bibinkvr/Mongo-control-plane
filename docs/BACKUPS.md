@@ -9,6 +9,7 @@ The API exposes authenticated backup request and inventory endpoints, backed by 
 - `POST /api/projects/:projectId/backups` queues a backup request for one ready managed database (`databaseId`), not an entire connection. It returns HTTP 202 with a backup ID and job ID. It does not run a dump in the API process.
 - `GET /api/projects/:projectId/backups` lists backup metadata (maximum 100 rows per request).
 - `GET /api/projects/:projectId/backups/:backupId` returns one project-scoped backup record.
+- `DELETE /api/projects/:projectId/backups/:backupId` queues deletion and returns HTTP 202. It requires `backup:manage` and refuses records marked `retention_protected`.
 - `backup:manage` is required to queue a backup; `backup:read` is required to list or inspect. Project membership is checked server-side. The caller cannot provide a storage path, MongoDB URI, executable, or shell arguments.
 - Backup record and job creation plus the audit event are committed in one PostgreSQL transaction. A composite foreign key binds the backup's project, connection, and managed database IDs, preventing mismatched target references. Legacy connection-scoped queued records are failed during migration 006 rather than executed with unsafe scope. The queue uses a separate `backup_jobs` table with lease fields for a future worker.
 - API responses intentionally omit storage keys and encryption envelope metadata.
@@ -31,7 +32,7 @@ The local filesystem adapter is single-node storage. A multi-node deployment nee
 
 ## Implemented dump adapter and worker
 
-The worker claims backup jobs using PostgreSQL `SKIP LOCKED`, renewable leases, bounded retries, and audit events. It loads a credential only while it owns the job lease, uses the managed database's scoped user, and supplies a server-generated `--nsInclude` filter for that database. The adapter runs a configured absolute `mongodump` executable with `shell: false`, streams archive output directly into encrypted storage, enforces a byte limit and deadline, ignores stderr to avoid credential leakage, and deletes the object if the tool exits unsuccessfully.
+The worker claims backup and deletion jobs using PostgreSQL `SKIP LOCKED`, renewable leases, bounded retries, and audit events. Deletion removes only the canonical project/backup object, then clears its encryption envelope from PostgreSQL in the same completion transaction. Protected backups cannot be manually deleted. It loads a credential only while it owns the job lease, uses the managed database's scoped user, and supplies a server-generated `--nsInclude` filter for that database. The adapter runs a configured absolute `mongodump` executable with `shell: false`, streams archive output directly into encrypted storage, enforces a byte limit and deadline, ignores stderr to avoid credential leakage, and deletes the object if the tool exits unsuccessfully.
 
 The adapter uses the official MongoDB Database Tools:
 
