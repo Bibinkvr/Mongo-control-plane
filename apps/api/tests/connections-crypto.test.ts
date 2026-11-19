@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createCipheriv, randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   decryptConnectionUri, encryptConnectionUri, parseEncryptionKeyring,
@@ -35,6 +35,36 @@ describe("connection secret envelope encryption", () => {
   it("rejects a missing decryption key", () => {
     const encrypted = encryptConnectionUri(uri, oldRing, context);
     expect(() => decryptConnectionUri(encrypted, { currentVersion: 2, keys: new Map([[2, newKey]]) }, context)).toThrow(/unavailable/);
+  });
+
+  it("keeps legacy version-1 secrets decryptable and rewrappable", () => {
+    const dek = randomBytes(32);
+    const secretNonce = randomBytes(12);
+    const secretCipher = createCipheriv("aes-256-gcm", dek, secretNonce);
+    secretCipher.setAAD(Buffer.from("mongo-control-plane:connection:secret:v1", "utf8"));
+    const ciphertext = Buffer.concat([secretCipher.update(Buffer.from(uri, "utf8")), secretCipher.final()]);
+
+    const wrapNonce = randomBytes(12);
+    const wrapCipher = createCipheriv("aes-256-gcm", oldKey, wrapNonce);
+    wrapCipher.setAAD(Buffer.from("mongo-control-plane:connection:dek:v1:key:1", "utf8"));
+    const wrappedDek = Buffer.concat([wrapCipher.update(dek), wrapCipher.final()]);
+    const legacy = {
+      ciphertext,
+      nonce: secretNonce,
+      authTag: secretCipher.getAuthTag(),
+      wrappedDek,
+      wrapNonce,
+      wrapAuthTag: wrapCipher.getAuthTag(),
+      keyVersion: 1,
+      encryptionContextVersion: 1 as const,
+    };
+
+    expect(decryptConnectionUri(legacy, oldRing, context)).toBe(uri);
+    const rotated = rewrapConnectionSecret(legacy, rotatedRing, context);
+    expect(rotated.encryptionContextVersion).toBe(1);
+    expect(rotated.keyVersion).toBe(2);
+    expect(decryptConnectionUri(rotated, rotatedRing, context)).toBe(uri);
+    dek.fill(0);
   });
 
   it("rotates the wrapped data key without changing URI ciphertext", () => {
