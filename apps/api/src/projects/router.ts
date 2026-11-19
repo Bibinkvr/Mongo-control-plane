@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { z } from "zod";
 import type { Pool } from "pg";
 import { resolveSession } from "../auth/router.js";
+import { hasProjectPermission } from "../auth/permissions.js";
 
 const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -196,7 +197,7 @@ export function createProjectsRouter(pool: Pool): Router {
         response.status(404).json({ error: { code: "PROJECT_NOT_FOUND", message: "The project was not found." } });
         return;
       }
-      if (!user.is_platform_admin && access.rows[0]?.role !== "project_admin") {
+      if (!user.is_platform_admin && !hasProjectPermission(access.rows[0]?.role ?? "", "members:manage")) {
         await client.query("ROLLBACK");
         response.status(403).json({ error: { code: "FORBIDDEN", message: "Project administrator permission is required." } });
         return;
@@ -268,7 +269,7 @@ export function createProjectsRouter(pool: Pool): Router {
         response.status(404).json({ error: { code: "PROJECT_NOT_FOUND", message: "The project was not found." } });
         return;
       }
-      if (!user.is_platform_admin && access.rows[0]?.role !== "project_admin") {
+      if (!user.is_platform_admin && !hasProjectPermission(access.rows[0]?.role ?? "", "members:manage")) {
         await client.query("ROLLBACK");
         response.status(403).json({ error: { code: "FORBIDDEN", message: "Project administrator permission is required." } });
         return;
@@ -340,7 +341,7 @@ export function createProjectsRouter(pool: Pool): Router {
         response.status(404).json({ error: { code: "PROJECT_NOT_FOUND", message: "The project was not found." } });
         return;
       }
-      if (!user.is_platform_admin && access.rows[0]?.role !== "project_admin") {
+      if (!user.is_platform_admin && !hasProjectPermission(access.rows[0]?.role ?? "", "members:manage")) {
         await client.query("ROLLBACK");
         response.status(403).json({ error: { code: "FORBIDDEN", message: "Project administrator permission is required." } });
         return;
