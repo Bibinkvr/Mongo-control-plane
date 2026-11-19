@@ -43,7 +43,8 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 
 ## Phase 3 — Shared MongoDB provisioning
 - [x] Shared MongoDB user provisioning with project/resource ownership markers and safe retry reconciliation
-- [x] Database-scoped `readWrite` role and SCRAM-SHA-256 enforcement
+- [x] Database-scoped `readWrite` application role and SCRAM-SHA-256 enforcement
+- [x] Separate database-scoped `read` backup principal with encrypted credentials, legacy backfill, readiness gating, and ownership-checked cleanup
 - [x] Ownership-checked user removal and database deletion
 - [x] PostgreSQL-backed provisioning outbox with `SKIP LOCKED`, expiring leases, bounded retries, and idempotent worker operations
 - [x] Encrypted application credentials persisted before external provisioning; credentials wiped after successful deletion
@@ -70,7 +71,9 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] Encrypted streaming file-storage primitive with per-backup DEKs, context-bound AES-GCM, atomic publication, and authenticated restore staging (CI verified)
 - [x] Backup metadata schema, transactional request queue, inventory API, project RBAC, and audit events (CI verified)
 - [x] Backup targets bound to a ready managed database with composite tenant/connection/database foreign-key enforcement (CI verified)
-- [x] Leased backup worker and fixed-argument MongoDB Database Tools adapter (CI fake-executable tests; production egress isolation and real-tool verification remain gates)\n- [ ] Enforced backup-worker network egress allowlist\n- [x] Dedicated encrypted read-only backup credentials, automatic legacy-resource backfill, readiness gating, and key rotation (CI verified)
+- [x] Leased backup worker and fixed-argument MongoDB Database Tools adapter (CI fake-executable tests; production egress isolation and real-tool verification remain gates)
+- [ ] Enforced backup-worker network egress allowlist
+- [x] Dedicated encrypted read-only backup credentials, automatic legacy-resource backfill, readiness gating, and key rotation (CI verified)
 - [ ] Restore jobs, integrity verification, and retention-safe deletion
 - [ ] Object storage adapter and multi-node durability
 - [ ] Health, metrics, logs, and alert hooks
