@@ -156,7 +156,7 @@ Shared database endpoints (all responses use `Cache-Control: no-store`):
 
 - `GET /api/projects/:projectId/databases` — list non-deleted database resources (`database:read`).
 - `POST /api/projects/:projectId/databases` — enqueue provisioning with JSON `{ "connectionId": "...", "name": "..." }` (`database:admin`).
-- `POST /api/projects/:projectId/databases/:databaseId/credentials` — explicitly reveal a Compass-compatible URI (`database:use` and `connection:use`); every reveal is audited.
+- `POST /api/projects/:projectId/databases/:databaseId/credentials` — explicitly reveal a Compass-compatible URI (`database:use`, project-admin only, plus `connection:use`); every reveal is audited.
 - `POST /api/projects/:projectId/databases/:databaseId/rotate-key` — re-wrap the encrypted credential DEK without changing the ciphertext (`database:admin`).
 - `DELETE /api/projects/:projectId/databases/:databaseId` — enqueue deletion with JSON `{ "confirmDatabaseName": "exact-generated-database-name" }` (`database:admin`). The worker removes the owned user, drops the database, and wipes the encrypted credential envelope. The API returns `202`; poll the list endpoint for the final state.
 
@@ -193,3 +193,21 @@ The permission catalog is centralized in `apps/api/src/auth/permissions.ts`:
 | Audit read | Yes | No | No |
 
 Platform administrators bypass project-level permission checks. New protected modules should call `hasProjectPermission` on a membership role obtained from the database; never accept a role or permission list from the request body.
+
+
+### MongoDB workspace API
+
+The workspace uses the generated database-scoped application account. It does not expose administrator credentials or accept arbitrary MongoDB commands, filters, aggregation pipelines, or shell input.
+
+- `GET /api/projects/:projectId/databases/:databaseId/collections` — list collections (`database:read`).
+- `POST /api/projects/:projectId/databases/:databaseId/collections` — create a collection with JSON `{ "name": "customers" }` (`database:admin`).
+- `DELETE /api/projects/:projectId/databases/:databaseId/collections/:collectionName` — drop a collection with JSON `{ "confirmCollectionName": "customers" }` (`database:admin`).
+- `GET /api/projects/:projectId/databases/:databaseId/collections/:collectionName/documents?limit=25&skip=0` — bounded document page (`database:read`, maximum 100 documents and 10,000 skip).
+- `POST /api/projects/:projectId/databases/:databaseId/collections/:collectionName/documents` — insert a JSON document (`database:write`, no caller-supplied `_id`, maximum 1 MB).
+- `PATCH /api/projects/:projectId/databases/:databaseId/collections/:collectionName/documents/:documentId` — update fields with JSON `{ "set": { "status": "active" } }` (`database:write`).
+- `DELETE /api/projects/:projectId/databases/:databaseId/collections/:collectionName/documents/:documentId` — delete one ObjectId document (`database:write`).
+- `GET /api/projects/:projectId/databases/:databaseId/collections/:collectionName/indexes` — list indexes (`database:read`).
+- `POST /api/projects/:projectId/databases/:databaseId/collections/:collectionName/indexes` — create a bounded index, JSON `{ "keys": { "email": 1 }, "unique": true }` (`database:admin`).
+- `DELETE /api/projects/:projectId/databases/:databaseId/collections/:collectionName/indexes/:indexName` — drop a non-`_id_` index (`database:admin`).
+
+The workspace uses TLS, bounded MongoDB timeouts, DNS-pinned egress checks and PostgreSQL row locks while an operation runs. The locks prevent database deletion, credential rotation, or connection removal from racing active workspace operations. Project admins may reveal the application URI; developers and read-only members use the permission-checked workspace API without receiving the URI. The API currently opens a bounded MongoDB client for each request; connection-pool reuse is a later performance optimization.
