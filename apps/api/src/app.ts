@@ -7,6 +7,7 @@ import { createProjectsRouter } from "./projects/router.js";
 import { createConnectionsRouter } from "./connections/router.js";
 import { createDatabasesRouter } from "./provisioning/router.js";
 import { createWorkspaceRouter } from "./workspace/router.js";
+import { createBackupsRouter } from "./backups/router.js";
 import type { WorkspacePolicy } from "./workspace/service.js";
 import type { EncryptionKeyring } from "./connections/crypto.js";
 
@@ -61,9 +62,13 @@ export function createApp(options: AppOptions = {}) {
       app.use("/api/projects", createConnectionsRouter(options.pool, options.encryptionKeyring));
       app.use("/api/projects", createDatabasesRouter(options.pool, options.encryptionKeyring));
       app.use("/api/projects", createWorkspaceRouter(options.pool, options.encryptionKeyring, options.mongoNetworkPolicy ?? {}));
+      app.use("/api/projects", createBackupsRouter(options.pool));
     } else {
       app.use("/api/projects/:projectId/connections", (_request, response) => {
         response.status(503).json({ error: { code: "ENCRYPTION_UNAVAILABLE", message: "Connection management is temporarily unavailable." } });
+      });
+      app.use("/api/projects/:projectId/backups", (_request, response) => {
+        response.status(503).json({ error: { code: "ENCRYPTION_UNAVAILABLE", message: "Backup management is temporarily unavailable." } });
       });
       app.use("/api/projects/:projectId/databases", (_request, response) => {
         response.status(503).json({ error: { code: "ENCRYPTION_UNAVAILABLE", message: "Database provisioning is temporarily unavailable." } });
