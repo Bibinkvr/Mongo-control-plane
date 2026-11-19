@@ -236,6 +236,15 @@ export function createConnectionsRouter(pool: Pool, keyring: EncryptionKeyring):
       );
       if (!membership.rows[0]) { await client.query("ROLLBACK"); response.status(404).json({ error: { code: "PROJECT_NOT_FOUND", message: "The project was not found." } }); return; }
       if (!hasProjectPermission(membership.rows[0].role, "connection:manage")) { await client.query("ROLLBACK"); response.status(403).json({ error: { code: "FORBIDDEN", message: "Connection management permission is required." } }); return; }
+      const activeResources = await client.query(
+        "SELECT id FROM database_resources WHERE connection_id=$1 AND status <> 'deleted' LIMIT 1 FOR SHARE",
+        [connectionId.data],
+      );
+      if (activeResources.rows[0]) {
+        await client.query("ROLLBACK");
+        response.status(409).json({ error: { code: "DATABASE_RESOURCES_EXIST", message: "Delete or finish all database resources before deleting this connection." } });
+        return;
+      }
       const deleted = await client.query("DELETE FROM connection_targets WHERE id=$1 AND project_id=$2 RETURNING id", [connectionId.data, projectId.data]);
       if (!deleted.rows[0]) { await client.query("ROLLBACK"); response.status(404).json({ error: { code: "CONNECTION_NOT_FOUND", message: "The connection was not found." } }); return; }
       await client.query(
