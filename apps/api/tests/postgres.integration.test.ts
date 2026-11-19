@@ -210,7 +210,7 @@ integration("PostgreSQL schema and tenant isolation", () => {
       [owner.rows[0]!.id, ownerToken],
       [reader.rows[0]!.id, readerToken],
       [outsider.rows[0]!.id, outsiderToken],
-    ]) {
+    ] as const) {
       await db().query(
         "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, now() + interval '1 hour')",
         [userId, hashSessionToken(token)],
