@@ -164,7 +164,7 @@ export async function runMongodumpToEncryptedStorage(input: {
     const [stored, exit] = await Promise.all([storagePromise, exitPromise]);
     if (timedOut) throw new DatabaseToolsError("TOOL_TIMEOUT", "mongodump exceeded its execution deadline.");
     if (cancelled) throw new DatabaseToolsError("BACKUP_CANCELLED", "Backup execution was cancelled.");
-    if (exit.code !== 0) throw new DatabaseToolsError("TOOL_FAILED", "mongodump failed; no backup was published.");
+    if (exit.code !== 0) throw new DatabaseToolsError("TOOL_FAILED", `mongodump exited with code ${exit.code ?? "unknown"}.`);
     return stored;
   } catch (error) {
     terminate();
