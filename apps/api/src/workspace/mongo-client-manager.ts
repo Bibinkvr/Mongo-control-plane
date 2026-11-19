@@ -8,6 +8,7 @@ type ClientEntry = {
   leases: number;
   lastUsedAt: number;
   closing: boolean;
+  drainWaiters: Array<() => void>;
 };
 
 export type MongoClientManagerOptions = {
@@ -67,24 +68,28 @@ export class MongoClientManager {
     let entry = this.entries.get(key);
     if (!entry) {
       await this.makeRoom();
-      if (this.entries.size >= this.maxClients) {
-        throw new Error("MongoDB client capacity is temporarily exhausted.");
-      }
-      const client = this.factory(uri, clientOptions);
-      entry = {
+      entry = this.entries.get(key);
+      if (!entry) {
+        if (this.entries.size >= this.maxClients) {
+          throw new Error("MongoDB client capacity is temporarily exhausted.");
+        }
+        const client = this.factory(uri, clientOptions);
+        entry = {
         key,
         client,
         connected: Promise.resolve().then(() => client.connect()).then(() => undefined),
         leases: 0,
         lastUsedAt: Date.now(),
-        closing: false,
-      };
-      this.entries.set(key, entry);
-      void entry.connected.catch(async () => {
-        if (this.entries.get(key) === entry) this.entries.delete(key);
-        entry!.closing = true;
-        await client.close().catch(() => undefined);
-      });
+          closing: false,
+          drainWaiters: [],
+        };
+        this.entries.set(key, entry);
+        void entry.connected.catch(async () => {
+          if (this.entries.get(key) === entry) this.entries.delete(key);
+          entry!.closing = true;
+          await client.close().catch(() => undefined);
+        });
+      }
     }
 
     entry.leases += 1;
@@ -96,6 +101,9 @@ export class MongoClientManager {
     } finally {
       entry.leases = Math.max(0, entry.leases - 1);
       entry.lastUsedAt = Date.now();
+      if (this.closed && entry.leases === 0) {
+        for (const resolve of entry.drainWaiters.splice(0)) resolve();
+      }
     }
   }
 
@@ -110,7 +118,10 @@ export class MongoClientManager {
     if (this.closed) return;
     this.closed = true;
     clearInterval(this.sweepTimer);
-    await Promise.all([...this.entries.values()].map((entry) => this.closeEntry(entry)));
+    await Promise.all([...this.entries.values()].map(async (entry) => {
+      if (entry.leases > 0) await new Promise<void>((resolve) => entry.drainWaiters.push(resolve));
+      await this.closeEntry(entry);
+    }));
   }
 
   get size(): number {
@@ -136,3 +147,5 @@ export class MongoClientManager {
     await entry.client.close().catch(() => undefined);
   }
 }
+
+export const defaultMongoClientManager = new MongoClientManager();
