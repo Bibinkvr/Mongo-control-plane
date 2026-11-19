@@ -29,7 +29,7 @@ describe("encrypted backup storage", () => {
   it("encrypts a streamed archive and verifies it before exposing restore plaintext", async () => {
     const root = await createRoot();
     const payload = Buffer.from("BSON archive test payload\n".repeat(100));
-    const metadata = await writeEncryptedBackup(root, projectId, backupId, Readable.from(payload), keyring);
+    const metadata = await writeEncryptedBackup(root, projectId, backupId, Readable.from([payload]), keyring);
 
     expect(metadata.plaintextBytes).toBe(payload.length);
     expect(metadata.sha256).toMatch(/^[a-f0-9]{64}$/);
@@ -49,7 +49,7 @@ describe("encrypted backup storage", () => {
   it("rejects modified ciphertext and removes incomplete restore plaintext", async () => {
     const root = await createRoot();
     const payload = Buffer.from("sensitive archive content");
-    const metadata = await writeEncryptedBackup(root, projectId, backupId, Readable.from(payload), keyring);
+    const metadata = await writeEncryptedBackup(root, projectId, backupId, Readable.from([payload]), keyring);
     const filePath = join(root, projectId, `${backupId}.mcpbackup`);
     const file = await open(filePath, "r+");
     try {
@@ -67,7 +67,7 @@ describe("encrypted backup storage", () => {
 
   it("rejects cross-project and cross-backup metadata substitution", async () => {
     const root = await createRoot();
-    const metadata = await writeEncryptedBackup(root, projectId, backupId, Readable.from(Buffer.from("backup")), keyring);
+    const metadata = await writeEncryptedBackup(root, projectId, backupId, Readable.from([Buffer.from("backup")]), keyring);
     await expect(decryptBackupToTemporaryFile(
       root,
       "33333333-3333-4333-8333-333333333333",
@@ -90,11 +90,11 @@ describe("encrypted backup storage", () => {
       root,
       projectId,
       backupId,
-      Readable.from(Buffer.from("123456")),
+      Readable.from([Buffer.from("123456")]),
       keyring,
       5,
     )).rejects.toThrow(/BACKUP_SIZE_LIMIT_EXCEEDED/);
-    await expect(readdir(join(root, projectId))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readdir(join(root, projectId))).toEqual([]);
   });
 
   it("rejects non-UUID identifiers before touching storage", async () => {
@@ -103,7 +103,7 @@ describe("encrypted backup storage", () => {
       root,
       "../outside",
       backupId,
-      Readable.from(Buffer.from("x")),
+      Readable.from([Buffer.from("x")]),
       keyring,
     )).rejects.toThrow(/UUID/);
   });
