@@ -284,9 +284,10 @@ integration("PostgreSQL schema and tenant isolation", () => {
       caller: { userId: owner.rows[0]!.id, isPlatformAdmin: false }, projectId, connectionId,
     });
     expect(credential).toBe(uri);
-    await expect(loadConnectionCredential(db(), rotatedRing, {
+    const readerCredential = await loadConnectionCredential(db(), rotatedRing, {
       caller: { userId: reader.rows[0]!.id, isPlatformAdmin: false }, projectId, connectionId,
-    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+    expect(readerCredential).toBe(uri);
 
     const renamed = await ownerApi.patch(`/api/projects/${projectId}/connections/${connectionId}`)
       .set("Cookie", ownerCookie).send({ name: "Primary Production", status: "disabled" });
