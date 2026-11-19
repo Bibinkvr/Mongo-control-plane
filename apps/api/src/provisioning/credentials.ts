@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import { hasProjectPermission } from "../auth/permissions.js";
 import { loadConnectionCredentialInTransaction, type CredentialCaller } from "../connections/credential-service.js";
+import { parseMongoConnectionUri } from "../connections/crypto.js";
 import {
   decryptSecretString,
   type EncryptedConnectionSecret,
@@ -34,6 +35,10 @@ export function buildDatabaseConnectionUri(
   password: string,
   databaseName: string,
 ): string {
+  parseMongoConnectionUri(adminUri);
+  if (!/^mcp_[a-f0-9]{32}$/.test(username)) throw new Error("Application MongoDB username is invalid.");
+  if (!/^mcp_[a-f0-9]{16}_[a-f0-9]{16}$/.test(databaseName)) throw new Error("Application MongoDB database name is invalid.");
+  if (!/^[A-Za-z0-9_-]{43}$/.test(password)) throw new Error("Application MongoDB password is invalid.");
   const match = /^(mongodb(?:\+srv)?:\/\/)(?:[^@/]*@)?([^/?#]+)(?:\/[^?#]*)?(?:\?([^#]*))?$/i.exec(adminUri);
   if (!match) throw new Error("The configured MongoDB URI cannot be safely transformed.");
   const scheme = match[1]!;
