@@ -60,16 +60,17 @@ describe("MongoClientManager", () => {
     managers.push(manager);
 
     let finishOperation!: () => void;
+    let markEntered!: () => void;
     const operationGate = new Promise<void>((resolve) => { finishOperation = resolve; });
+    const entered = new Promise<void>((resolve) => { markEntered = resolve; });
     const operation = manager.withDatabase(
       "resource-1",
       "mongodb://user:one@db.example.com/app",
       options,
       "app",
-      async () => operationGate,
+      async () => { markEntered(); return operationGate; },
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await entered;
 
     let closeFinished = false;
     const closing = manager.close().then(() => { closeFinished = true; });
@@ -97,16 +98,17 @@ describe("MongoClientManager", () => {
     managers.push(manager);
 
     let finishOperation!: () => void;
+    let markEntered!: () => void;
     const gate = new Promise<void>((resolve) => { finishOperation = resolve; });
+    const entered = new Promise<void>((resolve) => { markEntered = resolve; });
     const active = manager.withDatabase(
       "resource-1",
       "mongodb://user:one@db.example.com/app",
       options,
       "app",
-      async () => gate,
+      async () => { markEntered(); return gate; },
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await entered;
 
     await expect(manager.withDatabase(
       "resource-2",
