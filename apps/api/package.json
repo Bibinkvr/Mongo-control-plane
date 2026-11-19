@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "test:ci": "vitest run --coverage",
-    "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts"
+    "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts",
+    "migrate": "tsx src/scripts/migrate.ts"
   },
   "dependencies": {
     "express": "^5.1.0",
