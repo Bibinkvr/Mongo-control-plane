@@ -7,7 +7,9 @@ This document describes required controls. A control is not considered implement
 - Use secure, HttpOnly, SameSite cookies for browser sessions; protect state-changing requests against CSRF.
 - Hash passwords with a modern password-hashing algorithm and appropriate parameters.
 - Enforce RBAC and project-level authorization on every API operation.
-- Encrypt database credentials using envelope encryption. Keep the master key outside PostgreSQL and outside source control.
+- Encrypt database credentials using envelope encryption. Bind authenticated encryption to the owning project and connection IDs. Keep the master key outside PostgreSQL and outside source control.
+- Decrypt credentials only inside trusted server-side services after checking a dedicated permission; never serialize credentials into HTTP responses or log them.
+- Preserve legacy encryption-format compatibility until existing secrets have been re-encrypted with context-bound AAD.
 - Redact passwords, URI credentials, access tokens, and sensitive payloads from logs, traces, and errors.
 - Restrict outbound connections to configured database targets. Block loopback, link-local, private, and metadata endpoints unless explicitly allowed by a trusted administrator and deployment policy. Revalidate DNS results to mitigate rebinding.
 - Apply strict connection, query, execution-time, response-size, and concurrency limits.
