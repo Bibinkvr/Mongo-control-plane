@@ -70,7 +70,7 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] Encrypted streaming file-storage primitive with per-backup DEKs, context-bound AES-GCM, atomic publication, and authenticated restore staging (CI verified)
 - [x] Backup metadata schema, transactional request queue, inventory API, project RBAC, and audit events (CI verified)
 - [x] Backup targets bound to a ready managed database with composite tenant/connection/database foreign-key enforcement (CI verified)
-- [ ] Isolated backup worker and MongoDB Database Tools adapter
+- [x] Leased backup worker and fixed-argument MongoDB Database Tools adapter (CI fake-executable tests; production egress isolation and real-tool verification remain gates)\n- [ ] Enforced backup-worker network egress allowlist\n- [ ] Dedicated read-only backup credentials
 - [ ] Restore jobs, integrity verification, and retention-safe deletion
 - [ ] Object storage adapter and multi-node durability
 - [ ] Health, metrics, logs, and alert hooks
