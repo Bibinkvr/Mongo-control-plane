@@ -70,7 +70,11 @@ async function completeJob(pool: Pool, job: ClaimedJob, actorId: string): Promis
         `UPDATE database_resources
             SET status='deleted', last_error_code=NULL,
                 credential_ciphertext=$3, credential_nonce=$4, credential_auth_tag=$5,
-                wrapped_dek=$6, wrap_nonce=$7, wrap_auth_tag=$8, updated_at=now()
+                wrapped_dek=$6, wrap_nonce=$7, wrap_auth_tag=$8,
+                backup_username=NULL, backup_credential_ciphertext=NULL, backup_credential_nonce=NULL,
+                backup_credential_auth_tag=NULL, backup_wrapped_dek=NULL, backup_wrap_nonce=NULL,
+                backup_wrap_auth_tag=NULL, backup_key_version=NULL, backup_user_ready_at=NULL,
+                updated_at=now()
           WHERE id=$1 AND project_id=$2 AND status='deleting'`,
         [job.resource_id, job.project_id, Buffer.alloc(0), Buffer.alloc(12), Buffer.alloc(16),
          Buffer.alloc(0), Buffer.alloc(12), Buffer.alloc(16)],
@@ -78,10 +82,17 @@ async function completeJob(pool: Pool, job: ClaimedJob, actorId: string): Promis
       if (resourceUpdate.rowCount !== 1) throw new Error("PROVISIONING_RESOURCE_STATE_CHANGED");
     } else if (job.operation === "provision") {
       const resourceUpdate = await client.query(
-        "UPDATE database_resources SET status='ready', last_error_code=NULL, updated_at=now() WHERE id=$1 AND project_id=$2 AND status='provisioning'",
+        "UPDATE database_resources SET status='ready', backup_user_ready_at=now(), last_error_code=NULL, updated_at=now() WHERE id=$1 AND project_id=$2 AND status='provisioning'",
         [job.resource_id, job.project_id],
       );
       if (resourceUpdate.rowCount !== 1) throw new Error("PROVISIONING_RESOURCE_STATE_CHANGED");
+    }
+    if (job.operation === "backup_user") {
+      const backupUserUpdate = await client.query(
+        "UPDATE database_resources SET backup_user_ready_at=now(), last_error_code=NULL, updated_at=now() WHERE id=$1 AND project_id=$2 AND status='ready' AND backup_username IS NOT NULL",
+        [job.resource_id, job.project_id],
+      );
+      if (backupUserUpdate.rowCount !== 1) throw new Error("BACKUP_USER_RESOURCE_STATE_CHANGED");
     }
     const action = job.operation === "delete" ? "database.delete.succeeded"
       : job.operation === "backup_user" ? "database.backup-user.provision.succeeded"
@@ -117,6 +128,7 @@ async function failJob(pool: Pool, job: ClaimedJob, actorId: string | null): Pro
         `UPDATE database_resources
             SET status=CASE WHEN $3::text='backup_user' THEN status WHEN $2 THEN 'failed' WHEN $3::text='delete' THEN 'deleting' ELSE 'provisioning' END,
                 last_error_code=CASE WHEN $3::text='backup_user' THEN 'BACKUP_USER_PROVISIONING_FAILED' ELSE 'PROVISIONING_FAILED' END,
+                backup_user_ready_at=CASE WHEN $3::text='backup_user' THEN NULL ELSE backup_user_ready_at END,
                 updated_at=now()
           WHERE id=$1 AND status <> 'deleted'`,
         [job.resource_id, terminal, job.operation],
