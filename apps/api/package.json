@@ -12,7 +12,8 @@
     "test:ci": "vitest run --coverage",
     "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts",
     "migrate": "tsx src/scripts/migrate.ts",
-    "worker": "tsx src/scripts/provisioning-worker.ts"
+    "worker": "tsx src/scripts/provisioning-worker.ts",
+    "backup-worker": "tsx src/scripts/backup-worker.ts"
   },
   "dependencies": {
     "express": "^5.1.0",
