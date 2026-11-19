@@ -43,3 +43,19 @@ The API listens on `127.0.0.1:5000` by default. Override `HOST` and `PORT` throu
 - The current health endpoints are not a production readiness guarantee.
 
 Never put production credentials or customer data in local test fixtures.
+
+## PostgreSQL control-plane schema
+
+The initial identity/project schema is in `apps/api/migrations/001_identity_and_projects.sql`.
+
+Apply it to a dedicated PostgreSQL database using a migration runner or, for local development only:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f apps/api/migrations/001_identity_and_projects.sql
+```
+
+Use a dedicated application role that does not own the schema or migration objects. Run schema migrations with a separate deployment role. The application role should receive only the DML permissions required by the API; it must not own `audit_events`, disable triggers, or alter schema objects.
+
+The schema stores account identity, hashed session-token material, project membership, and append-only audit events. It does not store customer MongoDB documents or MongoDB credentials. Do not use the SQL file as an automatic production migration mechanism; a versioned migration runner and migration-state table are still required before production deployment.
+
+The API's PostgreSQL pool helper uses the node-postgres driver. Pool lifecycle wiring, dependency-aware readiness, migration execution, and integration tests are the next implementation steps.
