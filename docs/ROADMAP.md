@@ -67,7 +67,7 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 
 ## Phase 5 — Backups and observability
 - [ ] Backup scheduling and retention
-- [x] Encrypted streaming file-storage primitive with per-backup DEKs, context-bound AES-GCM, atomic publication, and authenticated restore staging (unit tests added; CI verification pending)
+- [x] Encrypted streaming file-storage primitive with per-backup DEKs, context-bound AES-GCM, atomic publication, and authenticated restore staging (CI verified)
 - [ ] Backup metadata schema and API authorization
 - [ ] Isolated backup worker and MongoDB Database Tools adapter
 - [ ] Restore jobs, integrity verification, and retention-safe deletion
