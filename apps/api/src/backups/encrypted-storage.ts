@@ -1,8 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { appendFile, chmod, link, lstat, mkdir, open, readFile, realpath, rm, stat, unlink } from "node:fs/promises";
+import { appendFile, chmod, link, lstat, mkdir, mkdtemp, open, realpath, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, parse, relative, resolve, sep } from "node:path";
 import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { EncryptionKeyring } from "../connections/crypto.js";
@@ -48,6 +48,7 @@ function wrapAad(projectId: string, backupId: string, version: number): Buffer {
 }
 
 async function ensurePrivateDirectory(path: string): Promise<string> {
+  if (resolve(path) === parse(resolve(path)).root) throw new Error("Backup storage root must be a dedicated directory.");
   await mkdir(path, { recursive: true, mode: 0o700 });
   const info = await lstat(path);
   if (!info.isDirectory() || info.isSymbolicLink()) {
@@ -61,6 +62,15 @@ function assertWithinRoot(root: string, target: string): void {
   const rel = relative(root, target);
   if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || resolve(root, rel) !== target) {
     throw new Error("Backup storage path escaped its configured root.");
+  }
+}
+
+async function readExactAt(handle: Awaited<ReturnType<typeof open>>, buffer: Buffer, position: number): Promise<void> {
+  let offset = 0;
+  while (offset < buffer.length) {
+    const result = await handle.read(buffer, offset, buffer.length - offset, position + offset);
+    if (result.bytesRead === 0) throw new Error("Backup file is truncated.");
+    offset += result.bytesRead;
   }
 }
 
@@ -125,6 +135,7 @@ export async function writeEncryptedBackup(
       },
     });
     await pipeline(source, meter, cipher, output);
+    if (plaintextBytes === 0) throw new Error("BACKUP_EMPTY");
     const authTag = cipher.getAuthTag();
     await appendFile(temporaryPath, authTag, { mode: 0o600 });
     const fileHandle = await open(temporaryPath, "r+");
@@ -193,8 +204,8 @@ export async function decryptBackupToTemporaryFile(
   try {
     header = Buffer.alloc(HEADER_BYTES);
     footer = Buffer.alloc(TAG_BYTES);
-    await handle.read(header, 0, HEADER_BYTES, 0);
-    await handle.read(footer, 0, TAG_BYTES, fileInfo.size - TAG_BYTES);
+    await readExactAt(handle, header, 0);
+    await readExactAt(handle, footer, fileInfo.size - TAG_BYTES);
   } finally {
     await handle.close();
   }
@@ -227,9 +238,11 @@ export async function decryptBackupToTemporaryFile(
     },
   });
 
-  const temporaryDirectory = await mkdirTemporaryDirectory();
-  const plaintextPath = join(temporaryDirectory, "restore.archive");
+  let temporaryDirectory: string | undefined;
   try {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "mcp-backup-"));
+    await chmod(temporaryDirectory, 0o700);
+    const plaintextPath = join(temporaryDirectory, "restore.archive");
     await pipeline(
       createReadStream(filePath, { start: HEADER_BYTES, end: fileInfo.size - TAG_BYTES - 1 }),
       decipher,
@@ -243,25 +256,14 @@ export async function decryptBackupToTemporaryFile(
     }
     return {
       path: plaintextPath,
-      cleanup: async () => rm(temporaryDirectory, { recursive: true, force: true }),
+      cleanup: async () => rm(temporaryDirectory!, { recursive: true, force: true }),
     };
   } catch (error) {
-    await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+    if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   } finally {
     dataKey.fill(0);
   }
-}
-
-async function mkdirTemporaryDirectory(): Promise<string> {
-  return mkdtempPrivate(join(tmpdir(), "mcp-backup-"));
-}
-
-async function mkdtempPrivate(prefix: string): Promise<string> {
-  const { mkdtemp } = await import("node:fs/promises");
-  const directory = await mkdtemp(prefix);
-  await chmod(directory, 0o700);
-  return directory;
 }
 
 /** Deletes only the canonical object for a project-owned backup ID. */
