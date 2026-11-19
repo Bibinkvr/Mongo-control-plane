@@ -8,6 +8,7 @@ export const PROJECT_PERMISSIONS = [
   "database:read",
   "database:write",
   "database:admin",
+  "database:use",
   "backup:read",
   "backup:manage",
   "audit:read",
@@ -20,7 +21,7 @@ const ROLE_PERMISSIONS: Record<Exclude<ProjectRole, "platform_admin">, ReadonlyS
   project_admin: new Set(PROJECT_PERMISSIONS),
   developer: new Set([
     "project:read", "members:read", "connection:read", "connection:use",
-    "database:read", "database:write", "backup:read",
+    "database:read", "database:write", "database:use", "backup:read",
   ]),
   read_only: new Set([
     "project:read", "members:read", "connection:read",
