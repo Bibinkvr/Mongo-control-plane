@@ -1,15 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Db, Document, MongoClient } from "mongodb";
 import {
+  createSharedDatabaseBackupIdentity,
   createSharedDatabaseIdentity,
   generateSharedDatabasePassword,
+  provisionSharedDatabaseBackupUser,
   provisionSharedDatabaseUser,
+  removeSharedDatabaseBackupUser,
   removeSharedDatabaseUser,
 } from "../src/provisioning/shared-mongodb.js";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
 const resourceId = "22222222-2222-4222-8222-222222222222";
 const identity = createSharedDatabaseIdentity(projectId, resourceId, "a".repeat(48));
+const backupIdentity = createSharedDatabaseBackupIdentity(projectId, resourceId, "b".repeat(48));
 
 function fakeAdminDb(initialUser?: unknown) {
   let user = initialUser;
@@ -47,6 +51,43 @@ describe("shared MongoDB provisioning", () => {
     expect(result.databaseName).toMatch(/^mcp_[a-f0-9]{16}_[a-f0-9]{16}$/);
     expect(result.username).toBe("mcp_22222222222242228222222222222222");
     expect(createSharedDatabaseIdentity(projectId, resourceId, "p".repeat(48))).toEqual(result);
+  });
+
+  it("creates a separate database-scoped read-only backup user", async () => {
+    const fake = fakeAdminDb();
+    const result = await provisionSharedDatabaseBackupUser(fake.admin, backupIdentity);
+    expect(result.action).toBe("created");
+    expect(fake.commands).toContainEqual(expect.objectContaining({
+      createUser: backupIdentity.username,
+      roles: [{ role: "read", db: backupIdentity.databaseName }],
+      mechanisms: ["SCRAM-SHA-256"],
+      writeConcern: { w: "majority" },
+    }));
+    expect(fake.getUser()).toMatchObject({
+      customData: { managedBy: "mongo-control-plane", projectId, resourceId, managedRole: "backup" },
+    });
+  });
+
+  it("reconciles only the backup-owned user and removes only that backup identity", async () => {
+    const fake = fakeAdminDb({
+      user: backupIdentity.username,
+      customData: { managedBy: "mongo-control-plane", projectId, resourceId, managedRole: "backup" },
+    });
+    const reconciled = await provisionSharedDatabaseBackupUser(fake.admin, backupIdentity);
+    expect(reconciled.action).toBe("reconciled");
+    expect(fake.commands.some((command) => "updateUser" in command)).toBe(true);
+    const removed = await removeSharedDatabaseBackupUser(fake.admin, backupIdentity);
+    expect(removed.removed).toBe(true);
+    expect(fake.commands.some((command) => "dropUser" in command)).toBe(true);
+  });
+
+  it("refuses to modify a user without the backup ownership marker", async () => {
+    const fake = fakeAdminDb({
+      user: backupIdentity.username,
+      customData: { managedBy: "mongo-control-plane", projectId, resourceId },
+    });
+    await expect(provisionSharedDatabaseBackupUser(fake.admin, backupIdentity)).rejects.toThrow(/not owned/);
+    expect(fake.commands.some((command) => "updateUser" in command)).toBe(false);
   });
 
   it("creates a database-scoped SCRAM-SHA-256 readWrite user", async () => {
