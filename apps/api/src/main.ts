@@ -1,0 +1,39 @@
+import { createServer } from "node:http";
+import { createApp } from "./app.js";
+import { parseEnv } from "./config/env.js";
+
+const env = parseEnv(process.env);
+const app = createApp();
+const server = createServer(app);
+
+server.listen(env.PORT, env.HOST, () => {
+  process.stdout.write(`API listening on http://${env.HOST}:${env.PORT}\n`);
+});
+
+let shuttingDown = false;
+
+function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  process.stdout.write(`Received ${signal}; shutting down gracefully.\n`);
+
+  const forceExit = setTimeout(() => {
+    process.stderr.write("Graceful shutdown timed out. Forcing exit.\n");
+    process.exit(1);
+  }, 10_000);
+  forceExit.unref();
+
+  server.close((error) => {
+    clearTimeout(forceExit);
+    if (error) {
+      process.stderr.write("HTTP server shutdown failed.\n");
+      process.exitCode = 1;
+      return;
+    }
+    process.exitCode = 0;
+  });
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
