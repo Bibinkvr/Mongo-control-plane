@@ -161,7 +161,14 @@ export async function rotateDatabaseCredentialKey(
               credential_ciphertext AS ciphertext, credential_nonce AS nonce,
               credential_auth_tag AS "authTag", wrapped_dek AS "wrappedDek",
               wrap_nonce AS "wrapNonce", wrap_auth_tag AS "wrapAuthTag",
-              key_version AS "keyVersion", encryption_context_version AS "encryptionContextVersion"
+              key_version AS "keyVersion", encryption_context_version AS "encryptionContextVersion",
+              backup_credential_ciphertext AS "backupCiphertext",
+              backup_credential_nonce AS "backupNonce",
+              backup_credential_auth_tag AS "backupAuthTag",
+              backup_wrapped_dek AS "backupWrappedDek",
+              backup_wrap_nonce AS "backupWrapNonce",
+              backup_wrap_auth_tag AS "backupWrapAuthTag",
+              backup_key_version AS "backupKeyVersion"
          FROM database_resources
         WHERE id=$1 AND project_id=$2
         FOR UPDATE`,
