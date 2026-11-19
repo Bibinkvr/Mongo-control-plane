@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import request from "supertest";
@@ -8,6 +11,8 @@ import { createSessionToken, hashSessionToken } from "../src/auth/session.js";
 import { decryptConnectionUri, encryptConnectionUri, encryptSecretString } from "../src/connections/crypto.js";
 import { loadConnectionCredential } from "../src/connections/credential-service.js";
 import { runMigrations } from "../src/db/migrations.js";
+import { processNextBackupJob } from "../src/backups/worker.js";
+import { decryptBackupToTemporaryFile } from "../src/backups/encrypted-storage.js";
 
 const databaseUrl = process.env["TEST_DATABASE_URL"] ?? "";
 const integration = describe.skipIf(!databaseUrl);
@@ -416,11 +421,83 @@ integration("PostgreSQL schema and tenant isolation", () => {
     expect(detail.body.backup.databaseId).toBe(databaseId);
     expect(detail.body.backup.databaseName).toBe("mcp_aaaaaaaaaaaaaaaa_bbbbbbbbbbbbbbbb");
 
+    const workerDirectory = await mkdtemp(join(tmpdir(), "mcp-backup-worker-test-"));
+    const storageRoot = await mkdtemp(join(tmpdir(), "mcp-backup-storage-test-"));
+    const executablePath = join(workerDirectory, "mongodump");
+    const fakeTool = `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "mongodump version: 100.3.0"
+  exit 0
+fi
+[ "$1" = "--config" ] || exit 11
+grep -q '^uri: "mongodb://' "$2" || exit 12
+shift 2
+[ "$1" = "--archive" ] || exit 13
+[ "$2" = "--gzip" ] || exit 14
+[ "$3" = "--nsInclude" ] || exit 15
+[ "$4" = "mcp_aaaaaaaaaaaaaaaa_bbbbbbbbbbbbbbbb.*" ] || exit 16
+printf "worker-integration-archive"
+`;
+    try {
+      await writeFile(executablePath, fakeTool, { encoding: "utf8", mode: 0o700 });
+      await chmod(executablePath, 0o700);
+      const processed = await processNextBackupJob(db(), keyring, {
+        executablePath,
+        storageRoot,
+        egressIsolationConfirmed: true,
+        maxBytes: 1_000_000,
+        timeoutMs: 10_000,
+      });
+      expect(processed).toBe(true);
+
+      const completedRecord = await db().query<{
+        status: string; storage_key: string; nonce: Buffer; auth_tag: Buffer;
+        wrapped_dek: Buffer; wrap_nonce: Buffer; wrap_auth_tag: Buffer;
+        key_version: number; plaintext_bytes: string; sha256: string;
+      }>(
+        `SELECT status, storage_key, nonce, auth_tag, wrapped_dek, wrap_nonce, wrap_auth_tag,
+                key_version, plaintext_bytes::text, sha256
+           FROM backup_records WHERE id=$1 AND project_id=$2`,
+        [backupId, projectId],
+      );
+      expect(completedRecord.rows[0]!.status).toBe("ready");
+      const storedBackup = completedRecord.rows[0]!;
+      const restored = await decryptBackupToTemporaryFile(storageRoot, projectId, backupId, {
+        storageKey: storedBackup.storage_key,
+        nonce: storedBackup.nonce,
+        authTag: storedBackup.auth_tag,
+        wrappedDek: storedBackup.wrapped_dek,
+        wrapNonce: storedBackup.wrap_nonce,
+        wrapAuthTag: storedBackup.wrap_auth_tag,
+        keyVersion: storedBackup.key_version,
+        plaintextBytes: Number(storedBackup.plaintext_bytes),
+        sha256: storedBackup.sha256.trim(),
+      }, keyring);
+      try {
+        expect(await readFile(restored.path, "utf8")).toBe("worker-integration-archive");
+      } finally {
+        await restored.cleanup();
+      }
+
+      const completedJob = await db().query<{ status: string }>(
+        "SELECT status FROM backup_jobs WHERE id=$1",
+        [jobId],
+      );
+      expect(completedJob.rows[0]?.status).toBe("succeeded");
+    } finally {
+      await Promise.all([
+        rm(workerDirectory, { recursive: true, force: true }),
+        rm(storageRoot, { recursive: true, force: true }),
+      ]);
+    }
+
     const event = await db().query<{ action: string }>(
-      "SELECT action FROM audit_events WHERE project_id=$1 AND target_id=$2",
+      "SELECT action FROM audit_events WHERE project_id=$1 AND target_id=$2 ORDER BY occurred_at",
       [projectId, backupId],
     );
-    expect(event.rows.map((row) => row.action)).toEqual(["backup.request"]);
+    expect(event.rows.map((row) => row.action)).toEqual([
+      "backup.request", "backup.credential.use", "backup.completed",
+    ]);
   });
 
 });
