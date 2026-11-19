@@ -132,10 +132,12 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
   let adminClient: MongoClient | undefined;
   try {
     const resource = await loadResource(pool, job);
-    actorId = resource.created_by;
+    const createdBy = resource.created_by;
+    if (!createdBy) throw new Error("PROVISIONING_RESOURCE_UNAVAILABLE");
+    actorId = createdBy;
     const password = decryptSecretString(resource, keyring, { projectId: resource.project_id, connectionId: resource.id });
     const adminUri = await loadConnectionCredential(pool, keyring, {
-      caller: { userId: resource.created_by, isPlatformAdmin: false },
+      caller: { userId: createdBy, isPlatformAdmin: false },
       projectId: resource.project_id,
       connectionId: resource.connection_id,
     });
@@ -153,7 +155,7 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
     });
     await adminClient.connect();
     await provisionSharedDatabaseUser(adminClient, identity);
-    await completeJob(pool, job, actorId);
+    await completeJob(pool, job, createdBy);
   } catch {
     await failJob(pool, job, actorId);
   } finally {
