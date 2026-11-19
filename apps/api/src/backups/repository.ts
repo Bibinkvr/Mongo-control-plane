@@ -6,7 +6,7 @@ export type BackupCaller = { userId: string; isPlatformAdmin: boolean };
 
 export class BackupRequestError extends Error {
   constructor(
-    public readonly code: "PROJECT_NOT_FOUND" | "FORBIDDEN" | "CONNECTION_NOT_FOUND" | "CONNECTION_DISABLED" | "BACKUP_NOT_FOUND" | "BACKUP_OPERATION_ACTIVE",
+    public readonly code: "PROJECT_NOT_FOUND" | "FORBIDDEN" | "CONNECTION_NOT_FOUND" | "CONNECTION_DISABLED" | "DATABASE_NOT_FOUND" | "DATABASE_NOT_READY" | "BACKUP_NOT_FOUND" | "BACKUP_OPERATION_ACTIVE",
     message: string,
   ) {
     super(message);
@@ -38,10 +38,10 @@ export async function requestBackup(
   input: {
     caller: BackupCaller;
     projectId: string;
-    connectionId: string;
+    databaseId: string;
     name: string;
   },
-): Promise<{ id: string; name: string; status: "queued"; jobId: string; createdAt: Date }> {
+): Promise<{ id: string; databaseId: string; name: string; status: "queued"; jobId: string; createdAt: Date }> {
   const backupId = randomUUID();
   const jobId = randomUUID();
   const client = await pool.connect();
@@ -52,9 +52,21 @@ export async function requestBackup(
       throw new BackupRequestError("FORBIDDEN", "Backup management permission is required.");
     }
 
+    const database = await client.query<{ connection_id: string; database_name: string; status: string }>(
+      "SELECT connection_id, database_name, status FROM database_resources WHERE id=$1 AND project_id=$2 FOR SHARE",
+      [input.databaseId, input.projectId],
+    );
+    const targetDatabase = database.rows[0];
+    if (!targetDatabase || targetDatabase.status === "deleted") {
+      throw new BackupRequestError("DATABASE_NOT_FOUND", "The managed database was not found.");
+    }
+    if (targetDatabase.status !== "ready") {
+      throw new BackupRequestError("DATABASE_NOT_READY", "The managed database must be ready before it can be backed up.");
+    }
+
     const connection = await client.query<{ status: string }>(
       "SELECT status FROM connection_targets WHERE id=$1 AND project_id=$2 FOR SHARE",
-      [input.connectionId, input.projectId],
+      [targetDatabase.connection_id, input.projectId],
     );
     const target = connection.rows[0];
     if (!target) throw new BackupRequestError("CONNECTION_NOT_FOUND", "The connection was not found.");
@@ -63,10 +75,10 @@ export async function requestBackup(
     }
 
     const inserted = await client.query<{ created_at: Date }>(
-      `INSERT INTO backup_records (id, project_id, connection_id, name, status, created_by)
-       VALUES ($1,$2,$3,$4,'queued',$5)
+      `INSERT INTO backup_records (id, project_id, database_id, connection_id, name, status, created_by)
+       VALUES ($1,$2,$3,$4,$5,'queued',$6)
        RETURNING created_at`,
-      [backupId, input.projectId, input.connectionId, input.name, input.caller.userId],
+      [backupId, input.projectId, input.databaseId, targetDatabase.connection_id, input.name, input.caller.userId],
     );
     await client.query(
       `INSERT INTO backup_jobs (id, project_id, backup_id, operation, status, created_by)
@@ -75,11 +87,11 @@ export async function requestBackup(
     );
     await client.query(
       `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
-       VALUES ($1,$2,'backup.request','backup',$3,jsonb_build_object('connectionId',$4::text,'name',$5::text))`,
-      [input.caller.userId, input.projectId, backupId, input.connectionId, input.name],
+       VALUES ($1,$2,'backup.request','backup',$3,jsonb_build_object('databaseId',$4::text,'name',$5::text))`,
+      [input.caller.userId, input.projectId, backupId, input.databaseId, input.name],
     );
     await client.query("COMMIT");
-    return { id: backupId, name: input.name, status: "queued", jobId, createdAt: inserted.rows[0]!.created_at };
+    return { id: backupId, databaseId: input.databaseId, name: input.name, status: "queued", jobId, createdAt: inserted.rows[0]!.created_at };
   } catch (error) {
     await client.query("ROLLBACK");
     if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
@@ -98,7 +110,9 @@ export async function listProjectBackups(
   limit = 50,
 ): Promise<Array<{
   id: string;
+  databaseId: string | null;
   connectionId: string;
+  databaseName: string | null;
   name: string;
   format: string;
   status: string;
@@ -129,13 +143,13 @@ export async function listProjectBackups(
   }
 
   const result = await pool.query(
-    `SELECT id, connection_id AS "connectionId", name, format, status,
-            plaintext_bytes::text AS "plaintextBytes", sha256,
-            last_error_code AS "lastErrorCode", retention_protected AS "retentionProtected",
-            created_at AS "createdAt", started_at AS "startedAt", completed_at AS "completedAt"
-       FROM backup_records
-      WHERE project_id=$1 AND status <> 'deleted'
-      ORDER BY created_at DESC
+    `SELECT b.id, b.database_id AS "databaseId", b.connection_id AS "connectionId", d.database_name AS "databaseName", b.name, b.format, b.status,
+            b.plaintext_bytes::text AS "plaintextBytes", b.sha256,
+            b.last_error_code AS "lastErrorCode", b.retention_protected AS "retentionProtected",
+            b.created_at AS "createdAt", b.started_at AS "startedAt", b.completed_at AS "completedAt"
+       FROM backup_records b LEFT JOIN database_resources d ON d.id=b.database_id
+      WHERE b.project_id=$1 AND b.status <> 'deleted'
+      ORDER BY b.created_at DESC
       LIMIT $2`,
     [projectId, limit],
   );
@@ -181,8 +195,8 @@ export async function getProjectBackup(
             plaintext_bytes::text AS "plaintextBytes", sha256,
             last_error_code AS "lastErrorCode", retention_protected AS "retentionProtected",
             created_at AS "createdAt", started_at AS "startedAt", completed_at AS "completedAt"
-       FROM backup_records
-      WHERE project_id=$1 AND id=$2 AND status <> 'deleted'`,
+       FROM backup_records b LEFT JOIN database_resources d ON d.id=b.database_id
+      WHERE b.project_id=$1 AND b.id=$2 AND b.status <> 'deleted'`,
     [projectId, backupId],
   );
   return result.rows[0] ?? null;
