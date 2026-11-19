@@ -6,6 +6,7 @@ import { encryptConnectionUri, decryptSecretString, type EncryptedConnectionSecr
 import { createDatabaseProvisioningRequest } from "../src/provisioning/repository.js";
 import { processNextProvisioningJob } from "../src/provisioning/worker.js";
 import { requestDatabaseDeletion } from "../src/provisioning/repository.js";
+import { withManagedDatabase, DatabaseWorkspaceError } from "../src/workspace/service.js";
 import { revealDatabaseConnectionUri, rotateDatabaseCredentialKey } from "../src/provisioning/credentials.js";
 import { hashPassword } from "../src/auth/password.js";
 import { runMigrations } from "../src/db/migrations.js";
@@ -75,6 +76,79 @@ integration("database provisioning worker integration", () => {
 
     const status = await pool.query<{ status: string }>("SELECT status FROM database_resources WHERE id=$1", [resource.id]);
     expect(status.rows[0]?.status).toBe("ready");
+
+    const workspacePolicy = { tls: false, allowLoopback: true };
+    const developerPassword = await hashPassword("workspace developer integration password");
+    const developer = await pool.query<{ id: string }>(
+      "INSERT INTO users (email,password_hash,display_name) VALUES ($1,$2,'Workspace Developer') RETURNING id",
+      [`developer-${suffix}@example.com`, developerPassword],
+    );
+    const readerPassword = await hashPassword("workspace reader integration password");
+    const reader = await pool.query<{ id: string }>(
+      "INSERT INTO users (email,password_hash,display_name) VALUES ($1,$2,'Workspace Reader') RETURNING id",
+      [`reader-${suffix}@example.com`, readerPassword],
+    );
+    await pool.query(
+      "INSERT INTO project_memberships (project_id,user_id,role,created_by) VALUES ($1,$2,'developer',$3),($1,$4,'read_only',$3)",
+      [projectId, developer.rows[0]!.id, user.rows[0]!.id, reader.rows[0]!.id],
+    );
+
+    await withManagedDatabase(pool, keyring, workspacePolicy, {
+      caller: { userId: user.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+      permission: "database:admin", auditAction: "database.collection.create", auditMetadata: { collection: "workspace_docs" },
+    }, async (database) => database.createCollection("workspace_docs"));
+
+    const developerInsert = await withManagedDatabase(pool, keyring, workspacePolicy, {
+      caller: { userId: developer.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+      permission: "database:write", auditAction: "database.document.insert", auditMetadata: { collection: "workspace_docs" },
+    }, async (database) => database.collection("workspace_docs").insertOne({ label: "first", count: 1 }));
+    expect(developerInsert.insertedId).toBeDefined();
+
+    const readerDocuments = await withManagedDatabase(pool, keyring, workspacePolicy, {
+      caller: { userId: reader.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+      permission: "database:read",
+    }, async (database) => database.collection("workspace_docs").find({}).toArray());
+    expect(readerDocuments).toHaveLength(1);
+    expect(readerDocuments[0]).toMatchObject({ label: "first", count: 1 });
+
+    await expect(withManagedDatabase(pool, keyring, workspacePolicy, {
+      caller: { userId: reader.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+      permission: "database:write",
+    }, async (database) => database.collection("workspace_docs").insertOne({ denied: true })))
+      .rejects.toBeInstanceOf(DatabaseWorkspaceError);
+    await expect(revealDatabaseConnectionUri(pool, keyring, {
+      caller: { userId: developer.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+    })).rejects.toThrow(/permission to use this database/i);
+
+    const indexName = await withManagedDatabase(pool, keyring, workspacePolicy, {
+      caller: { userId: user.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+      permission: "database:admin", auditAction: "database.index.create", auditMetadata: { collection: "workspace_docs" },
+    }, async (database) => database.collection("workspace_docs").createIndex({ label: 1 }, { unique: true }));
+    expect(indexName).toBe("label_1");
+
+    await withManagedDatabase(pool, keyring, workspacePolicy, {
+      caller: { userId: user.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+      permission: "database:admin", auditAction: "database.index.drop", auditMetadata: { collection: "workspace_docs" },
+    }, async (database) => database.collection("workspace_docs").dropIndex(indexName));
+
+    const updated = await withManagedDatabase(pool, keyring, workspacePolicy, {
+      caller: { userId: developer.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+      permission: "database:write", auditAction: "database.document.update", auditMetadata: { collection: "workspace_docs" },
+    }, async (database) => database.collection("workspace_docs").updateOne(
+      { _id: developerInsert.insertedId }, { $set: { count: 2 } },
+    ));
+    expect(updated.modifiedCount).toBe(1);
+
+    const removed = await withManagedDatabase(pool, keyring, workspacePolicy, {
+      caller: { userId: developer.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+      permission: "database:write", auditAction: "database.document.delete", auditMetadata: { collection: "workspace_docs" },
+    }, async (database) => database.collection("workspace_docs").deleteOne({ _id: developerInsert.insertedId }));
+    expect(removed.deletedCount).toBe(1);
+
+    await withManagedDatabase(pool, keyring, workspacePolicy, {
+      caller: { userId: user.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+      permission: "database:admin", auditAction: "database.collection.drop", auditMetadata: { collection: "workspace_docs" },
+    }, async (database) => database.dropCollection("workspace_docs"));
 
     const rotatedKey = Buffer.alloc(32, 88);
     const rotatedRing = { currentVersion: 2, keys: new Map([[1, keyring.keys.get(1)!], [2, rotatedKey]]) };
