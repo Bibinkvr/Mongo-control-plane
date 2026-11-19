@@ -27,6 +27,13 @@ type CredentialRow = EncryptedConnectionSecret & {
   username: string;
   status: string;
   encryptionContextVersion: 2;
+  backupCiphertext?: Buffer | null;
+  backupNonce?: Buffer | null;
+  backupAuthTag?: Buffer | null;
+  backupWrappedDek?: Buffer | null;
+  backupWrapNonce?: Buffer | null;
+  backupWrapAuthTag?: Buffer | null;
+  backupKeyVersion?: number | null;
 };
 
 /** Rebuilds a user URI while preserving the original MongoDB host list and options. */
@@ -87,7 +94,14 @@ export async function revealDatabaseConnectionUri(
               credential_ciphertext AS ciphertext, credential_nonce AS nonce,
               credential_auth_tag AS "authTag", wrapped_dek AS "wrappedDek",
               wrap_nonce AS "wrapNonce", wrap_auth_tag AS "wrapAuthTag",
-              key_version AS "keyVersion", encryption_context_version AS "encryptionContextVersion"
+              key_version AS "keyVersion", encryption_context_version AS "encryptionContextVersion",
+              backup_credential_ciphertext AS "backupCiphertext",
+              backup_credential_nonce AS "backupNonce",
+              backup_credential_auth_tag AS "backupAuthTag",
+              backup_wrapped_dek AS "backupWrappedDek",
+              backup_wrap_nonce AS "backupWrapNonce",
+              backup_wrap_auth_tag AS "backupWrapAuthTag",
+              backup_key_version AS "backupKeyVersion"
          FROM database_resources
         WHERE id=$1 AND project_id=$2
         FOR SHARE`,
@@ -157,13 +171,34 @@ export async function rotateDatabaseCredentialKey(
     if (!row || row.status === "deleted") throw new DatabaseCredentialError("DATABASE_NOT_FOUND", "The database resource was not found.");
     if (row.status !== "ready" && row.status !== "failed") throw new DatabaseCredentialError("DATABASE_NOT_READY", "Key rotation is unavailable while a database operation is active.");
     const next = rewrapConnectionSecret(row, keyring, { projectId: input.projectId, connectionId: row.id });
-    const rotated = next.keyVersion !== row.keyVersion;
+    let nextBackup: EncryptedConnectionSecret | undefined;
+    if (row.backupCiphertext && row.backupNonce && row.backupAuthTag && row.backupWrappedDek
+      && row.backupWrapNonce && row.backupWrapAuthTag && row.backupKeyVersion) {
+      nextBackup = rewrapConnectionSecret({
+        ciphertext: row.backupCiphertext,
+        nonce: row.backupNonce,
+        authTag: row.backupAuthTag,
+        wrappedDek: row.backupWrappedDek,
+        wrapNonce: row.backupWrapNonce,
+        wrapAuthTag: row.backupWrapAuthTag,
+        keyVersion: row.backupKeyVersion,
+        encryptionContextVersion: 2,
+      }, keyring, { projectId: input.projectId, connectionId: row.id });
+    }
+    const rotated = next.keyVersion !== row.keyVersion || (nextBackup !== undefined && nextBackup.keyVersion !== row.backupKeyVersion);
     if (rotated) {
       await client.query(
         `UPDATE database_resources
-            SET wrapped_dek=$3, wrap_nonce=$4, wrap_auth_tag=$5, key_version=$6, updated_at=now()
+            SET wrapped_dek=$3, wrap_nonce=$4, wrap_auth_tag=$5, key_version=$6,
+                backup_wrapped_dek=COALESCE($7,backup_wrapped_dek),
+                backup_wrap_nonce=COALESCE($8,backup_wrap_nonce),
+                backup_wrap_auth_tag=COALESCE($9,backup_wrap_auth_tag),
+                backup_key_version=COALESCE($10,backup_key_version),
+                updated_at=now()
           WHERE id=$1 AND project_id=$2`,
-        [row.id, input.projectId, next.wrappedDek, next.wrapNonce, next.wrapAuthTag, next.keyVersion],
+        [row.id, input.projectId, next.wrappedDek, next.wrapNonce, next.wrapAuthTag, next.keyVersion,
+         nextBackup?.wrappedDek ?? null, nextBackup?.wrapNonce ?? null, nextBackup?.wrapAuthTag ?? null,
+         nextBackup?.keyVersion ?? null],
       );
       await client.query(
         `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
