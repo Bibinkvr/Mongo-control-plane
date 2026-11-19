@@ -82,8 +82,10 @@ export function parseMongoConnectionUri(uri: string): { hostLabel: string } {
   const srv = match[1]!.toLowerCase() === "mongodb+srv://";
   const authority = match[2]!;
   const at = authority.lastIndexOf("@");
+  if (at >= 0 && authority.slice(0, at).includes("@")) throw new Error("MongoDB URI credentials must be percent-encoded.");
   const hostList = at >= 0 ? authority.slice(at + 1) : authority;
   const entries = hostList.split(",");
+  if (srv && entries.length !== 1) throw new Error("mongodb+srv:// URIs must specify exactly one DNS hostname.");
   if (entries.length < 1 || entries.length > 64 || entries.some((entry) => entry.length === 0)) {
     throw new Error("MongoDB connection URI must include a valid host list.");
   }
