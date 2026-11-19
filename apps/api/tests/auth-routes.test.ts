@@ -56,7 +56,7 @@ describe("authentication routes", () => {
     });
     expect(login.status).toBe(200);
     expect(login.body.user).toMatchObject({ id: userId, email: "admin@example.com", isPlatformAdmin: true });
-    expect(login.headers["set-cookie"][0]).toContain("HttpOnly");
+    expect((login.headers["set-cookie"]?.[0] ?? "")).toContain("HttpOnly");
     expect(login.headers["set-cookie"][0]).toContain("SameSite=Lax");
 
     const me = await agent.get("/api/auth/me");
@@ -65,7 +65,7 @@ describe("authentication routes", () => {
 
     const logout = await agent.post("/api/auth/logout");
     expect(logout.status).toBe(204);
-    expect(logout.headers["set-cookie"][0]).toContain("Max-Age=0");
+    expect((logout.headers["set-cookie"]?.[0] ?? "")).toContain("Max-Age=0");
 
     const afterLogout = await agent.get("/api/auth/me");
     expect(afterLogout.status).toBe(401);
