@@ -41,7 +41,7 @@ if (args[2] !== "--archive" || args[3] !== "--gzip") process.exit(12);
 if (args[4] !== "--nsInclude" || args[5] !== "${databaseName}.*") process.exit(13);
 process.stdout.write("test-archive-payload");
 process.exit(${exitCode});
-`
+`;
     await writeFile(executable, script, { encoding: "utf8", mode: 0o700 });
     await chmod(executable, 0o700);
     return executable;
