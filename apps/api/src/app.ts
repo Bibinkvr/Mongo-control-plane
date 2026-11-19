@@ -18,11 +18,11 @@ const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _
     return;
   }
   response.status(500).json({ error: { code: "INTERNAL_SERVER_ERROR", message: "An unexpected error occurred." } });
-  if (process.env.NODE_ENV !== "test") process.stderr.write("Unhandled API error\n");
+  if (process.env["NODE_ENV"] !== "test") process.stderr.write("Unhandled API error\n");
 };
 
 export type AppOptions = {
-  pool?: Pool;
+  pool?: Pool | undefined;
   secureCookies?: boolean;
 };
 
