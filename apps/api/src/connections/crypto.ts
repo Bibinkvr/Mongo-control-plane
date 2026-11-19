@@ -36,6 +36,16 @@ export function parseMongoConnectionUri(uri: string): { hostLabel: string } {
   if (parsed.protocol !== "mongodb:" && parsed.protocol !== "mongodb+srv:") throw new Error("Only mongodb:// and mongodb+srv:// connection URIs are supported.");
   if (!parsed.hostname || parsed.hostname.length > 253) throw new Error("MongoDB connection URI must include a valid host.");
   if (parsed.protocol === "mongodb+srv:" && parsed.port) throw new Error("mongodb+srv:// URIs must not specify a port.");
+  for (const [key, value] of parsed.searchParams.entries()) {
+    const normalizedKey = key.toLowerCase();
+    const normalizedValue = value.toLowerCase();
+    if ((normalizedKey === "tls" || normalizedKey === "ssl") && normalizedValue === "false") {
+      throw new Error("MongoDB connection URIs must not disable TLS.");
+    }
+    if (["tlsinsecure", "tlsallowinvalidcertificates", "tlsallowinvalidhostnames"].includes(normalizedKey) && normalizedValue === "true") {
+      throw new Error("MongoDB connection URIs must not disable TLS certificate or hostname validation.");
+    }
+  }
   return { hostLabel: parsed.hostname.toLowerCase() };
 }
 export function encryptSecretString(value: string, keyring: EncryptionKeyring, context: ConnectionSecretContext): EncryptedConnectionSecret {
