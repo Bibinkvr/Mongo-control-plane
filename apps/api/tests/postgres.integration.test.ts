@@ -143,14 +143,22 @@ integration("PostgreSQL schema and tenant isolation", () => {
     expect(promoted.status).toBe(200);
     expect(promoted.body.membership.role).toBe("project_admin");
 
+    const targetToken = createSessionToken();
+    await db().query(
+      "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, now() + interval '1 hour')",
+      [targetId, hashSessionToken(targetToken)],
+    );
+    const targetApi = request(createApp({ pool: db() }));
+    const targetCookie = `mcp_session=${targetToken}`;
+
     const downgraded = await api.patch(`/api/projects/${projectId}/members/${ownerId}`)
       .set("Cookie", cookie).send({ role: "developer" });
     expect(downgraded.status).toBe(200);
 
-    const removedOwner = await api.delete(`/api/projects/${projectId}/members/${ownerId}`).set("Cookie", cookie);
+    const removedOwner = await targetApi.delete(`/api/projects/${projectId}/members/${ownerId}`).set("Cookie", targetCookie);
     expect(removedOwner.status).toBe(204);
 
-    const blockedRemoval = await api.delete(`/api/projects/${projectId}/members/${targetId}`).set("Cookie", cookie);
+    const blockedRemoval = await targetApi.delete(`/api/projects/${projectId}/members/${targetId}`).set("Cookie", targetCookie);
     expect(blockedRemoval.status).toBe(409);
     expect(blockedRemoval.body.error.code).toBe("LAST_PROJECT_ADMIN");
   });
