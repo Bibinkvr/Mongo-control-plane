@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
+import request from "supertest";
+import { createApp } from "../src/app.js";
+import { hashPassword } from "../src/auth/password.js";
+import { createSessionToken, hashSessionToken } from "../src/auth/session.js";
 import { runMigrations } from "../src/db/migrations.js";
 
 const databaseUrl = process.env["TEST_DATABASE_URL"] ?? "";
@@ -89,4 +93,66 @@ integration("PostgreSQL schema and tenant isolation", () => {
       [event.rows[0]!.id],
     )).rejects.toThrow(/audit_events is append-only/);
   });
+  it("enforces project-admin membership changes and preserves a final administrator", async () => {
+    const suffix = randomUUID();
+    const passwordHash = await hashPassword("integration password long enough");
+    const owner = await db().query<{ id: string }>(
+      "INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, 'Project Owner') RETURNING id",
+      [`member-owner-${suffix}@example.com`, passwordHash],
+    );
+    const target = await db().query<{ id: string }>(
+      "INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, 'Project Member') RETURNING id",
+      [`member-target-${suffix}@example.com`, passwordHash],
+    );
+    const project = await db().query<{ id: string }>(
+      "INSERT INTO projects (name, slug, created_by) VALUES ('Membership Test', $1, $2) RETURNING id",
+      [`membership-${suffix}`, owner.rows[0]!.id],
+    );
+    await db().query(
+      "INSERT INTO project_memberships (project_id, user_id, role, created_by) VALUES ($1, $2, 'project_admin', $2)",
+      [project.rows[0]!.id, owner.rows[0]!.id],
+    );
+
+    const token = createSessionToken();
+    await db().query(
+      "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, now() + interval '1 hour')",
+      [owner.rows[0]!.id, hashSessionToken(token)],
+    );
+    const api = request(createApp({ pool: db() }));
+    const cookie = `mcp_session=${token}`;
+    const projectId = project.rows[0]!.id;
+    const ownerId = owner.rows[0]!.id;
+    const targetId = target.rows[0]!.id;
+
+    const listed = await api.get(`/api/projects/${projectId}/members`).set("Cookie", cookie);
+    expect(listed.status).toBe(200);
+    expect(listed.body.members).toHaveLength(1);
+
+    const added = await api.post(`/api/projects/${projectId}/members`).set("Cookie", cookie)
+      .send({ email: `member-target-${suffix}@example.com`, role: "developer" });
+    expect(added.status).toBe(201);
+    expect(added.body.membership.role).toBe("developer");
+
+    const blockedDowngrade = await api.patch(`/api/projects/${projectId}/members/${ownerId}`)
+      .set("Cookie", cookie).send({ role: "developer" });
+    expect(blockedDowngrade.status).toBe(409);
+    expect(blockedDowngrade.body.error.code).toBe("LAST_PROJECT_ADMIN");
+
+    const promoted = await api.patch(`/api/projects/${projectId}/members/${targetId}`)
+      .set("Cookie", cookie).send({ role: "project_admin" });
+    expect(promoted.status).toBe(200);
+    expect(promoted.body.membership.role).toBe("project_admin");
+
+    const downgraded = await api.patch(`/api/projects/${projectId}/members/${ownerId}`)
+      .set("Cookie", cookie).send({ role: "developer" });
+    expect(downgraded.status).toBe(200);
+
+    const removedOwner = await api.delete(`/api/projects/${projectId}/members/${ownerId}`).set("Cookie", cookie);
+    expect(removedOwner.status).toBe(204);
+
+    const blockedRemoval = await api.delete(`/api/projects/${projectId}/members/${targetId}`).set("Cookie", cookie);
+    expect(blockedRemoval.status).toBe(409);
+    expect(blockedRemoval.body.error.code).toBe("LAST_PROJECT_ADMIN");
+  });
+
 });
