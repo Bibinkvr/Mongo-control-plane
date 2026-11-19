@@ -1,0 +1,52 @@
+import { randomBytes } from "node:crypto";
+import { describe, expect, it } from "vitest";
+import {
+  decryptConnectionUri, encryptConnectionUri, parseEncryptionKeyring,
+  parseMongoConnectionUri, rewrapConnectionSecret,
+} from "../src/connections/crypto.js";
+
+const oldKey = randomBytes(32);
+const newKey = randomBytes(32);
+const oldRing = { currentVersion: 1, keys: new Map([[1, oldKey]]) };
+const rotatedRing = { currentVersion: 2, keys: new Map([[1, oldKey], [2, newKey]]) };
+const uri = "mongodb://user:secret@db.example.com:27017/app?retryWrites=true";
+
+describe("connection secret envelope encryption", () => {
+  it("encrypts and decrypts a MongoDB URI without storing plaintext", () => {
+    const encrypted = encryptConnectionUri(uri, oldRing);
+    expect(encrypted.ciphertext.includes(Buffer.from("secret"))).toBe(false);
+    expect(decryptConnectionUri(encrypted, oldRing)).toBe(uri);
+  });
+
+  it("detects ciphertext and authentication-tag tampering", () => {
+    const encrypted = encryptConnectionUri(uri, oldRing);
+    const tampered = { ...encrypted, ciphertext: Buffer.from(encrypted.ciphertext) };
+    tampered.ciphertext[0] = (tampered.ciphertext[0] ?? 0) ^ 1;
+    expect(() => decryptConnectionUri(tampered, oldRing)).toThrow();
+  });
+
+  it("rejects a missing decryption key", () => {
+    const encrypted = encryptConnectionUri(uri, oldRing);
+    expect(() => decryptConnectionUri(encrypted, { currentVersion: 2, keys: new Map([[2, newKey]]) })).toThrow(/unavailable/);
+  });
+
+  it("rotates the wrapped data key without changing URI ciphertext", () => {
+    const encrypted = encryptConnectionUri(uri, oldRing);
+    const rotated = rewrapConnectionSecret(encrypted, rotatedRing);
+    expect(rotated.keyVersion).toBe(2);
+    expect(rotated.ciphertext).toEqual(encrypted.ciphertext);
+    expect(decryptConnectionUri(rotated, rotatedRing)).toBe(uri);
+  });
+
+  it("validates MongoDB URI schemes and SRV constraints", () => {
+    expect(parseMongoConnectionUri("mongodb+srv://cluster.example.com/app").hostLabel).toBe("cluster.example.com");
+    expect(() => parseMongoConnectionUri("https://example.com")).toThrow();
+    expect(() => parseMongoConnectionUri("mongodb+srv://cluster.example.com:27017/app")).toThrow();
+  });
+
+  it("parses versioned base64 keyrings and rejects malformed keys", () => {
+    const encoded = randomBytes(32).toString("base64");
+    expect(parseEncryptionKeyring(JSON.stringify({ "3": encoded }), "3")?.currentVersion).toBe(3);
+    expect(() => parseEncryptionKeyring(JSON.stringify({ "3": "short" }), "3")).toThrow();
+  });
+});
