@@ -3,6 +3,7 @@ import { createApp } from "./app.js";
 import { parseEnv } from "./config/env.js";
 import { createDatabasePool } from "./db/pool.js";
 import { parseEncryptionKeyring } from "./connections/crypto.js";
+import { defaultMongoClientManager } from "./workspace/mongo-client-manager.js";
 
 const env = parseEnv(process.env);
 const pool = env.DATABASE_URL ? createDatabasePool(env.DATABASE_URL) : undefined;
@@ -36,6 +37,7 @@ function shutdown(signal: string) {
   server.close(async (error) => {
     clearTimeout(forceExit);
     try {
+      await defaultMongoClientManager.close();
       await pool?.end();
     } catch {
       process.stderr.write("PostgreSQL pool shutdown failed.\n");
