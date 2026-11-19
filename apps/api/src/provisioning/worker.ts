@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import { decryptSecretString, type EncryptedConnectionSecret, type EncryptionKeyring } from "../connections/crypto.js";
 import { loadConnectionCredential } from "../connections/credential-service.js";
 import { createSharedDatabaseIdentity, provisionSharedDatabaseUser } from "./shared-mongodb.js";
+import { createSafeMongoLookup } from "./network-guard.js";
 
 type ClaimedJob = { id: string; project_id: string; resource_id: string; lock_token: string; attempt_count: number; max_attempts: number };
 type ResourceRow = EncryptedConnectionSecret & {
@@ -14,6 +15,8 @@ export type ProvisioningWorkerOptions = {
   pollIntervalMs?: number;
   leaseSeconds?: number;
   tls?: boolean;
+  allowPrivateNetworks?: boolean;
+  allowLoopback?: boolean;
 };
 
 async function claimJob(pool: Pool, leaseSeconds: number): Promise<ClaimedJob | undefined> {
@@ -127,7 +130,7 @@ async function loadResource(pool: Pool, job: ClaimedJob): Promise<ResourceRow> {
   return row;
 }
 
-async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJob, tls: boolean): Promise<void> {
+async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJob, options: ProvisioningWorkerOptions): Promise<void> {
   let actorId: string | null = null;
   let adminClient: MongoClient | undefined;
   try {
@@ -146,7 +149,8 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
       throw new Error("PROVISIONING_IDENTITY_MISMATCH");
     }
     adminClient = new MongoClient(adminUri, {
-      tls,
+      tls: options.tls ?? true,
+      lookup: createSafeMongoLookup({ allowPrivateNetworks: options.allowPrivateNetworks, allowLoopback: options.allowLoopback }),
       serverSelectionTimeoutMS: 10_000,
       connectTimeoutMS: 10_000,
       socketTimeoutMS: 30_000,
@@ -171,7 +175,7 @@ export async function processNextProvisioningJob(
 ): Promise<boolean> {
   const job = await claimJob(pool, options.leaseSeconds ?? 120);
   if (!job) return false;
-  await processJob(pool, keyring, job, options.tls ?? true);
+  await processJob(pool, keyring, job, options);
   return true;
 }
 
@@ -184,12 +188,11 @@ export async function runProvisioningWorker(
 ): Promise<void> {
   const pollIntervalMs = options.pollIntervalMs ?? 1_000;
   const leaseSeconds = options.leaseSeconds ?? 120;
-  const tls = options.tls ?? true;
   if (!Number.isInteger(pollIntervalMs) || pollIntervalMs < 100 || pollIntervalMs > 60_000) throw new Error("Invalid provisioning worker poll interval.");
   if (!Number.isInteger(leaseSeconds) || leaseSeconds < 30 || leaseSeconds > 900) throw new Error("Invalid provisioning worker lease.");
   while (!signal?.aborted) {
     try {
-      const processed = await processNextProvisioningJob(pool, keyring, { leaseSeconds, tls });
+      const processed = await processNextProvisioningJob(pool, keyring, options);
       if (processed) continue;
     } catch {
       process.stderr.write("Provisioning worker could not claim or process a job.\n");
