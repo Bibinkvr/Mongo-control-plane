@@ -151,6 +151,7 @@ export async function rotateDatabaseCredentialKey(
     );
     const row = selected.rows[0];
     if (!row || row.status === "deleted") throw new DatabaseCredentialError("DATABASE_NOT_FOUND", "The database resource was not found.");
+    if (row.status !== "ready" && row.status !== "failed") throw new DatabaseCredentialError("DATABASE_NOT_READY", "Key rotation is unavailable while a database operation is active.");
     const next = rewrapConnectionSecret(row, keyring, { projectId: input.projectId, connectionId: row.id });
     const rotated = next.keyVersion !== row.keyVersion;
     if (rotated) {
