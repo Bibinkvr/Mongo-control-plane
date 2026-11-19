@@ -28,22 +28,20 @@ describe("mongodump adapter", () => {
     const directory = await mkdtemp(join(tmpdir(), "mcp-mongodump-bin-"));
     roots.push(directory);
     const executable = join(directory, "mongodump");
-    const script = `#!/bin/sh
-if [ "$1" = "--version" ]; then
-  echo "mongodump version: 100.3.0"
-  exit 0
-fi
-[ "$1" = "--config" ] || exit 11
-[ -f "$2" ] || exit 12
-grep -q '^uri: "mongodb://' "$2" || exit 13
-shift 2
-[ "$1" = "--archive" ] || exit 14
-[ "$2" = "--gzip" ] || exit 15
-[ "$3" = "--nsInclude" ] || exit 16
-[ "$4" = "${databaseName}.*" ] || exit 17
-printf "test-archive-payload"
-exit ${exitCode}
-`;
+    const script = `#!/usr/bin/env node
+const fs = require("node:fs");
+if (process.argv[2] === "--version") {
+  process.stdout.write("mongodump version: 100.3.0\\n");
+  process.exit(0);
+}
+const args = process.argv.slice(2);
+const config = fs.readFileSync(args[1], "utf8");
+if (args[0] !== "--config" || !config.startsWith('uri: "mongodb://')) process.exit(11);
+if (args[2] !== "--archive" || args[3] !== "--gzip") process.exit(12);
+if (args[4] !== "--nsInclude" || args[5] !== "${databaseName}.*") process.exit(13);
+process.stdout.write("test-archive-payload");
+process.exit(${exitCode});
+`
     await writeFile(executable, script, { encoding: "utf8", mode: 0o700 });
     await chmod(executable, 0o700);
     return executable;
