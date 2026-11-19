@@ -104,6 +104,7 @@ export async function withManagedDatabase<T>(
       resource.username,
       password,
       resource.database_name,
+      policy.tls ?? true,
     );
 
     mongo = new MongoClient(applicationUri, {
@@ -115,9 +116,9 @@ export async function withManagedDatabase<T>(
       serverSelectionTimeoutMS: 10_000,
       connectTimeoutMS: 10_000,
       socketTimeoutMS: 30_000,
-      maxPoolSize: 5,
+      maxPoolSize: 2,
       minPoolSize: 0,
-      maxConnecting: 2,
+      maxConnecting: 1,
       writeConcern: { w: "majority" },
       appName: "MongoControlPlaneWorkspace",
     });
