@@ -83,3 +83,15 @@ npm run bootstrap:admin --workspace @mongo-control-plane/api
 The bootstrap command takes a PostgreSQL advisory transaction lock and refuses to create another platform administrator if one already exists. Do not put bootstrap credentials in source control, CI variables, shell history, or a persistent service environment. Remove them immediately after successful bootstrap.
 
 Production deployment still requires a distributed login rate limiter, CSRF/origin controls appropriate to the deployment topology, session cleanup/retention, integration tests against a real PostgreSQL instance, and a documented key/credential rotation procedure. The current auth implementation is a development milestone, not a production security certification.
+
+## Project API
+
+Authenticated project endpoints:
+
+- `GET /api/projects` — list projects the current user belongs to; platform administrators can list all projects.
+- `POST /api/projects` — create a project and automatically grant the creator the `project_admin` role.
+- `GET /api/projects/:projectId` — retrieve a project only when the caller is a member or platform administrator.
+
+Project access is derived from the server-side session and membership tables. A project ID supplied by a client is never treated as proof of access. Project creation, creator membership, and the audit event are committed as one PostgreSQL statement.
+
+The current route tests use a controlled database stub. Run the PostgreSQL integration suite once the Compose/test database stack is available; the stub tests do not prove database isolation under real PostgreSQL execution.
