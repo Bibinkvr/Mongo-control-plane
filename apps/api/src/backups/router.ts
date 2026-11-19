@@ -6,9 +6,9 @@ import { BackupRequestError, getProjectBackup, listProjectBackups, requestBackup
 
 function sendBackupError(error: unknown, response: Response, next: NextFunction): void {
   if (error instanceof BackupRequestError) {
-    const status = error.code === "PROJECT_NOT_FOUND" || error.code === "CONNECTION_NOT_FOUND" || error.code === "BACKUP_NOT_FOUND" ? 404
+    const status = error.code === "PROJECT_NOT_FOUND" || error.code === "CONNECTION_NOT_FOUND" || error.code === "DATABASE_NOT_FOUND" || error.code === "BACKUP_NOT_FOUND" ? 404
       : error.code === "FORBIDDEN" ? 403
-      : error.code === "CONNECTION_DISABLED" || error.code === "BACKUP_OPERATION_ACTIVE" ? 409 : 400;
+      : error.code === "CONNECTION_DISABLED" || error.code === "DATABASE_NOT_READY" || error.code === "BACKUP_OPERATION_ACTIVE" ? 409 : 400;
     response.status(status).json({ error: { code: error.code, message: error.message } });
     return;
   }
@@ -54,18 +54,18 @@ export function createBackupsRouter(pool: Pool): Router {
   router.post("/:projectId/backups", async (request, response, next) => {
     const projectId = z.string().uuid().safeParse(request.params["projectId"]);
     const body = z.object({
-      connectionId: z.string().uuid(),
+      databaseId: z.string().uuid(),
       name: z.string().trim().min(1).max(100),
     }).strict().safeParse(request.body);
     if (!projectId.success || !body.success) {
-      response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Provide a valid connection ID and backup name." } });
+      response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Provide a valid managed database ID and backup name." } });
       return;
     }
     try {
       const backup = await requestBackup(pool, {
         caller: response.locals["backupCaller"] as { userId: string; isPlatformAdmin: boolean },
         projectId: projectId.data,
-        connectionId: body.data.connectionId,
+        databaseId: body.data.databaseId,
         name: body.data.name,
       });
       response.status(202).json({ backup });
