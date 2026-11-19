@@ -6,7 +6,7 @@ export type BackupCaller = { userId: string; isPlatformAdmin: boolean };
 
 export class BackupRequestError extends Error {
   constructor(
-    public readonly code: "PROJECT_NOT_FOUND" | "FORBIDDEN" | "CONNECTION_NOT_FOUND" | "CONNECTION_DISABLED" | "DATABASE_NOT_FOUND" | "DATABASE_NOT_READY" | "BACKUP_NOT_FOUND" | "BACKUP_OPERATION_ACTIVE",
+    public readonly code: "PROJECT_NOT_FOUND" | "FORBIDDEN" | "CONNECTION_NOT_FOUND" | "CONNECTION_DISABLED" | "DATABASE_NOT_FOUND" | "DATABASE_NOT_READY" | "BACKUP_NOT_FOUND" | "BACKUP_OPERATION_ACTIVE" | "BACKUP_RETENTION_PROTECTED" | "BACKUP_NOT_DELETABLE",
     message: string,
   ) {
     super(message);
@@ -202,4 +202,59 @@ export async function getProjectBackup(
     [projectId, backupId],
   );
   return result.rows[0] ?? null;
+}
+
+
+export async function requestBackupDeletion(
+  pool: Pool,
+  input: { caller: BackupCaller; projectId: string; backupId: string },
+): Promise<{ id: string; status: "deleting"; jobId: string }> {
+  const jobId = randomUUID();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const role = await lockProjectAccess(client, input.caller, input.projectId);
+    if (!hasProjectPermission(role, "backup:manage")) {
+      throw new BackupRequestError("FORBIDDEN", "Backup management permission is required.");
+    }
+
+    const selected = await client.query<{ status: string; retention_protected: boolean }>(
+      "SELECT status, retention_protected FROM backup_records WHERE id=$1 AND project_id=$2 FOR UPDATE",
+      [input.backupId, input.projectId],
+    );
+    const backup = selected.rows[0];
+    if (!backup || backup.status === "deleted") {
+      throw new BackupRequestError("BACKUP_NOT_FOUND", "The backup was not found.");
+    }
+    if (backup.retention_protected) {
+      throw new BackupRequestError("BACKUP_RETENTION_PROTECTED", "This backup is protected by retention policy.");
+    }
+    if (backup.status !== "ready" && backup.status !== "failed") {
+      throw new BackupRequestError("BACKUP_NOT_DELETABLE", "The backup cannot be deleted while another operation is active.");
+    }
+
+    await client.query(
+      "UPDATE backup_records SET status='deleting', updated_at=now() WHERE id=$1 AND project_id=$2",
+      [input.backupId, input.projectId],
+    );
+    await client.query(
+      "INSERT INTO backup_jobs (id, project_id, backup_id, operation, status, created_by) VALUES ($1,$2,$3,'delete','queued',$4)",
+      [jobId, input.projectId, input.backupId, input.caller.userId],
+    );
+    await client.query(
+      `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
+       VALUES ($1,$2,'backup.delete.request','backup',$3,'{}'::jsonb)`,
+      [input.caller.userId, input.projectId, input.backupId],
+    );
+    await client.query("COMMIT");
+    return { id: input.backupId, status: "deleting", jobId };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
+      throw new BackupRequestError("BACKUP_OPERATION_ACTIVE", "A backup operation is already active.");
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 }
