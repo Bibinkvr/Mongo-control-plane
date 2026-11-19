@@ -146,6 +146,77 @@ export function createConnectionsRouter(pool: Pool, keyring: EncryptionKeyring):
     finally { client.release(); }
   });
 
+  router.patch("/:projectId/connections/:connectionId", async (request, response) => {
+    const projectId = z.string().uuid().safeParse(request.params["projectId"]);
+    const connectionId = z.string().uuid().safeParse(request.params["connectionId"]);
+    const body = z.object({
+      name: z.string().trim().min(1).max(100).optional(),
+      status: z.enum(["configured", "disabled"]).optional(),
+    }).strict().refine((value) => value.name !== undefined || value.status !== undefined).safeParse(request.body);
+    if (!projectId.success || !connectionId.success) {
+      response.status(400).json({ error: { code: "INVALID_ID", message: "A project or connection ID is invalid." } });
+      return;
+    }
+    if (!body.success) {
+      response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Provide a valid connection name or status." } });
+      return;
+    }
+    const user = caller(response);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const membership = await client.query<{ role: string }>(
+        `SELECT COALESCE(pm.role, 'platform_admin') AS role
+           FROM projects p JOIN users u ON u.id = $2
+           LEFT JOIN project_memberships pm ON pm.project_id = p.id AND pm.user_id = $2
+          WHERE p.id = $1 AND (u.is_platform_admin OR pm.user_id = $2) FOR UPDATE OF p`,
+        [projectId.data, user.id],
+      );
+      if (!membership.rows[0]) {
+        await client.query("ROLLBACK");
+        response.status(404).json({ error: { code: "PROJECT_NOT_FOUND", message: "The project was not found." } });
+        return;
+      }
+      if (!hasProjectPermission(membership.rows[0].role, "connection:manage")) {
+        await client.query("ROLLBACK");
+        response.status(403).json({ error: { code: "FORBIDDEN", message: "Connection management permission is required." } });
+        return;
+      }
+      const updated = await client.query<DbRow>(
+        `UPDATE connection_targets
+            SET name = COALESCE($3, name),
+                status = COALESCE($4, status),
+                updated_at = now()
+          WHERE id = $1 AND project_id = $2
+          RETURNING id, name, kind, host_label, status, created_at, updated_at`,
+        [connectionId.data, projectId.data, body.data.name ?? null, body.data.status ?? null],
+      );
+      const row = updated.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        response.status(404).json({ error: { code: "CONNECTION_NOT_FOUND", message: "The connection was not found." } });
+        return;
+      }
+      await client.query(
+        `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
+         VALUES ($1,$2,'connection.update','connection',$3,$4::jsonb)`,
+        [user.id, projectId.data, connectionId.data, JSON.stringify({
+          ...(body.data.name !== undefined ? { name: body.data.name } : {}),
+          ...(body.data.status !== undefined ? { status: body.data.status } : {}),
+        })],
+      );
+      await client.query("COMMIT");
+      response.status(200).json({ connection: safeMetadata(row) });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
+        response.status(409).json({ error: { code: "CONNECTION_NAME_TAKEN", message: "A connection with this name already exists in the project." } });
+        return;
+      }
+      throw error;
+    } finally { client.release(); }
+  });
+
   router.delete("/:projectId/connections/:connectionId", async (request, response) => {
     const projectId = z.string().uuid().safeParse(request.params["projectId"]);
     const connectionId = z.string().uuid().safeParse(request.params["connectionId"]);
