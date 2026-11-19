@@ -91,6 +91,7 @@ export async function revealDatabaseConnectionUri(
     );
     const row = result.rows[0];
     if (!row) throw new DatabaseCredentialError("DATABASE_NOT_FOUND", "The database resource was not found.");
+    if (row.status === "deleted") throw new DatabaseCredentialError("DATABASE_NOT_FOUND", "The database resource was not found.");
     if (row.status !== "ready") throw new DatabaseCredentialError("DATABASE_NOT_READY", "The database is not ready for connections.");
 
     const password = decryptSecretString(row, keyring, { projectId: input.projectId, connectionId: row.id });
