@@ -32,7 +32,8 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] Encrypted connection target registry API (metadata-only responses; project permission checks; audit events)
 - [x] AES-256-GCM envelope encryption with per-secret DEKs and versioned KEKs
 - [x] DEK re-wrapping key rotation without decrypting MongoDB URI plaintext
-- [ ] PostgreSQL integration and cross-project authorization tests for connection routes
+- [x] Rename and enable/disable connection targets with audit events
+- [x] PostgreSQL integration coverage for encrypted storage, key rotation, CRUD, and tenant permissions (pending CI verification)
 - [ ] Secret use/reveal workflow for trusted server-side services (never expose credentials to browser)
 - [ ] Safe connection testing and SSRF/DNS-rebinding/egress protections
 - [ ] Per-project connection pooling
