@@ -38,15 +38,36 @@ export function parseMongoConnectionUri(uri: string): { hostLabel: string } {
   if (parsed.protocol === "mongodb+srv:" && parsed.port) throw new Error("mongodb+srv:// URIs must not specify a port.");
   return { hostLabel: parsed.hostname.toLowerCase() };
 }
-export function encryptConnectionUri(uri: string, keyring: EncryptionKeyring, context: ConnectionSecretContext): EncryptedConnectionSecret {
-  parseMongoConnectionUri(uri); const version = keyring.currentVersion; const kek = getKey(keyring, version);
+export function encryptSecretString(value: string, keyring: EncryptionKeyring, context: ConnectionSecretContext): EncryptedConnectionSecret {
+  if (!value || Buffer.byteLength(value, "utf8") > 16_384) throw new Error("Secret value is empty or too large.");
+  const version = keyring.currentVersion;
+  const kek = getKey(keyring, version);
   const dek = randomBytes(KEY_BYTES);
+  const plaintext = Buffer.from(value, "utf8");
   try {
-    const secret = encrypt(Buffer.from(uri, "utf8"), dek, contextAad("secret", version, context));
+    const secret = encrypt(plaintext, dek, contextAad("secret", version, context));
     const wrapped = encrypt(dek, kek, contextAad("dek", version, context));
-    return { ciphertext: secret.ciphertext, nonce: secret.nonce, authTag: secret.authTag, wrappedDek: wrapped.ciphertext,
-      wrapNonce: wrapped.nonce, wrapAuthTag: wrapped.authTag, keyVersion: version, encryptionContextVersion: 2 };
-  } finally { dek.fill(0); }
+    return { ciphertext: secret.ciphertext, nonce: secret.nonce, authTag: secret.authTag,
+      wrappedDek: wrapped.ciphertext, wrapNonce: wrapped.nonce, wrapAuthTag: wrapped.authTag,
+      keyVersion: version, encryptionContextVersion: 2 };
+  } finally { plaintext.fill(0); dek.fill(0); }
+}
+export function decryptSecretString(secret: EncryptedConnectionSecret, keyring: EncryptionKeyring, context: ConnectionSecretContext): string {
+  if (secret.encryptionContextVersion !== 2) throw new Error("Legacy secret format is not supported.");
+  const kek = getKey(keyring, secret.keyVersion);
+  const dek = decrypt(secret.wrappedDek, secret.wrapNonce, secret.wrapAuthTag, kek, contextAad("dek", secret.keyVersion, context));
+  let plaintext: Buffer | undefined;
+  try {
+    plaintext = decrypt(secret.ciphertext, secret.nonce, secret.authTag, dek, contextAad("secret", secret.keyVersion, context));
+    const value = plaintext.toString("utf8");
+    if (!value) throw new Error("Decrypted secret is empty.");
+    return value;
+  } finally { plaintext?.fill(0); dek.fill(0); }
+}
+
+export function encryptConnectionUri(uri: string, keyring: EncryptionKeyring, context: ConnectionSecretContext): EncryptedConnectionSecret {
+  parseMongoConnectionUri(uri);
+  return encryptSecretString(uri, keyring, context);
 }
 export function decryptConnectionUri(secret: EncryptedConnectionSecret, keyring: EncryptionKeyring, context: ConnectionSecretContext): string {
   const kek = getKey(keyring, secret.keyVersion); const legacy = secret.encryptionContextVersion === 1;
