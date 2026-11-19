@@ -4,6 +4,7 @@ import { loadConnectionCredentialInTransaction, type CredentialCaller } from "..
 import {
   decryptSecretString,
   parseMongoConnectionUri,
+  rewrapConnectionSecret,
   type EncryptedConnectionSecret,
   type EncryptionKeyring,
 } from "../connections/crypto.js";
@@ -106,6 +107,66 @@ export async function revealDatabaseConnectionUri(
     );
     await client.query("COMMIT");
     return uri;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function rotateDatabaseCredentialKey(
+  pool: Pool,
+  keyring: EncryptionKeyring,
+  input: { caller: CredentialCaller; projectId: string; databaseId: string },
+): Promise<{ keyVersion: number; rotated: boolean }> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const access = await client.query<{ role: string }>(
+      `SELECT CASE WHEN u.is_platform_admin THEN 'platform_admin' ELSE pm.role END AS role
+         FROM projects p
+         JOIN users u ON u.id = $2
+         LEFT JOIN project_memberships pm ON pm.project_id = p.id AND pm.user_id = u.id
+        WHERE p.id = $1 AND (u.is_platform_admin OR pm.user_id IS NOT NULL)
+        FOR UPDATE OF p`,
+      [input.projectId, input.caller.userId],
+    );
+    const role = access.rows[0]?.role;
+    if (!role) throw new DatabaseCredentialError("PROJECT_NOT_FOUND", "The project was not found.");
+    if (!hasProjectPermission(role, "database:admin")) {
+      throw new DatabaseCredentialError("FORBIDDEN", "Database administration permission is required for key rotation.");
+    }
+    const selected = await client.query<CredentialRow>(
+      `SELECT id, project_id, connection_id, database_name, username, status,
+              credential_ciphertext AS ciphertext, credential_nonce AS nonce,
+              credential_auth_tag AS "authTag", wrapped_dek AS "wrappedDek",
+              wrap_nonce AS "wrapNonce", wrap_auth_tag AS "wrapAuthTag",
+              key_version AS "keyVersion", encryption_context_version AS "encryptionContextVersion"
+         FROM database_resources
+        WHERE id=$1 AND project_id=$2
+        FOR UPDATE`,
+      [input.databaseId, input.projectId],
+    );
+    const row = selected.rows[0];
+    if (!row || row.status === "deleted") throw new DatabaseCredentialError("DATABASE_NOT_FOUND", "The database resource was not found.");
+    const next = rewrapConnectionSecret(row, keyring, { projectId: input.projectId, connectionId: row.id });
+    const rotated = next.keyVersion !== row.keyVersion;
+    if (rotated) {
+      await client.query(
+        `UPDATE database_resources
+            SET wrapped_dek=$3, wrap_nonce=$4, wrap_auth_tag=$5, key_version=$6, updated_at=now()
+          WHERE id=$1 AND project_id=$2`,
+        [row.id, input.projectId, next.wrappedDek, next.wrapNonce, next.wrapAuthTag, next.keyVersion],
+      );
+      await client.query(
+        `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
+         VALUES ($1,$2,'database.credential.key.rotate','database',$3,jsonb_build_object('fromVersion',$4::int,'toVersion',$5::int))`,
+        [input.caller.userId, input.projectId, row.id, row.keyVersion, next.keyVersion],
+      );
+    }
+    await client.query("COMMIT");
+    return { keyVersion: next.keyVersion, rotated };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
