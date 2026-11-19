@@ -71,7 +71,7 @@ exit ${exitCode}
       executablePath, uri, databaseName, storageRoot: root, projectId, backupId,
       keyring, maxBytes: 1_000_000, timeoutMs: 10_000,
     })).rejects.toMatchObject({ code: "TOOL_FAILED" });
-    await expect(readdir(join(root, projectId))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readdir(join(root, projectId))).toEqual([]);
   });
 
   it("rejects unsupported Database Tools versions before starting a dump", async () => {
