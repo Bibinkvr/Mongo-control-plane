@@ -15,12 +15,12 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [ ] Structured, secret-redacting application logging
 
 ## Phase 1 — Identity and project control
-- [x] Password login, logout, hashed opaque sessions, and one-time admin bootstrap (CI verified; PostgreSQL integration pending)
+- [x] Password login, logout, hashed opaque sessions, and one-time admin bootstrap (CI verified; login/bootstrap PostgreSQL integration pending)
 - [ ] Production rate limiting, CSRF/origin policy, session cleanup, and security review
 - [x] Initial PostgreSQL schema for users, sessions, projects, memberships, and audit events
 - [x] Checksum-verified, advisory-lock-protected migration runner
 - [x] Central project permission catalog and role matrix (CI verified)
-- [x] Authenticated project list, creation, and detail endpoints with membership-scoped SQL (real-DB verification pending)
+- [x] Authenticated project list, creation, and detail endpoints with membership-scoped SQL (unit-tested; project-create API PostgreSQL test pending)
 - [x] Project membership listing, add, role change, removal, and final-admin protection (PostgreSQL CI verified)
 - [ ] Project environments
 - [x] Server-side tenant isolation through membership-scoped project queries
