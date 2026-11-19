@@ -6,6 +6,7 @@ import { checkPostgres } from "./db/health.js";
 import { createProjectsRouter } from "./projects/router.js";
 import { createConnectionsRouter } from "./connections/router.js";
 import { createDatabasesRouter } from "./provisioning/router.js";
+import { createWorkspaceRouter, type WorkspacePolicy } from "./workspace/router.js";
 import type { EncryptionKeyring } from "./connections/crypto.js";
 
 const notFoundHandler: RequestHandler = (_request, response) => {
@@ -29,6 +30,7 @@ export type AppOptions = {
   pool?: Pool | undefined;
   secureCookies?: boolean;
   encryptionKeyring?: EncryptionKeyring;
+  mongoNetworkPolicy?: WorkspacePolicy;
 };
 
 export function createApp(options: AppOptions = {}) {
@@ -57,6 +59,7 @@ export function createApp(options: AppOptions = {}) {
     if (options.encryptionKeyring) {
       app.use("/api/projects", createConnectionsRouter(options.pool, options.encryptionKeyring));
       app.use("/api/projects", createDatabasesRouter(options.pool, options.encryptionKeyring));
+      app.use("/api/projects", createWorkspaceRouter(options.pool, options.encryptionKeyring, options.mongoNetworkPolicy ?? {}));
     } else {
       app.use("/api/projects/:projectId/connections", (_request, response) => {
         response.status(503).json({ error: { code: "ENCRYPTION_UNAVAILABLE", message: "Connection management is temporarily unavailable." } });
