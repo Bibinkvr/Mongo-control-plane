@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Db, Document, MongoClient } from "mongodb";
 
 export type SharedDatabaseIdentity = {
+  projectId: string;
   databaseName: string;
   username: string;
   password: string;
@@ -26,14 +27,16 @@ const USERNAME_PATTERN = /^mcp_[a-f0-9]{32}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function assertIdentity(identity: SharedDatabaseIdentity): void {
-  if (!DATABASE_NAME_PATTERN.test(identity.databaseName)) {
-    throw new Error("Managed MongoDB database name is invalid.");
+  if (!UUID_PATTERN.test(identity.projectId) || !UUID_PATTERN.test(identity.resourceId)) {
+    throw new Error("Project and resource IDs must be UUIDs.");
   }
-  if (!USERNAME_PATTERN.test(identity.username)) {
-    throw new Error("Managed MongoDB username is invalid.");
+  const expectedDatabase = `mcp_${identity.projectId.replaceAll("-", "").slice(0, 16).toLowerCase()}_${identity.resourceId.replaceAll("-", "").slice(0, 16).toLowerCase()}`;
+  const expectedUsername = `mcp_${identity.resourceId.replaceAll("-", "").toLowerCase()}`;
+  if (!DATABASE_NAME_PATTERN.test(identity.databaseName) || identity.databaseName !== expectedDatabase) {
+    throw new Error("Managed MongoDB database name does not match the project and resource IDs.");
   }
-  if (!UUID_PATTERN.test(identity.resourceId)) {
-    throw new Error("Managed MongoDB resource ID is invalid.");
+  if (!USERNAME_PATTERN.test(identity.username) || identity.username !== expectedUsername) {
+    throw new Error("Managed MongoDB username does not match the resource ID.");
   }
   if (identity.password.length < 32 || identity.password.length > 256) {
     throw new Error("Managed MongoDB password must contain between 32 and 256 characters.");
@@ -53,6 +56,7 @@ export function createSharedDatabaseIdentity(projectId: string, resourceId: stri
   const projectPart = projectId.replaceAll("-", "").slice(0, 16).toLowerCase();
   const resourcePart = resourceId.replaceAll("-", "").slice(0, 16).toLowerCase();
   const identity = {
+    projectId: projectId.toLowerCase(),
     databaseName: `mcp_${projectPart}_${resourcePart}`,
     username: `mcp_${resourceId.replaceAll("-", "").toLowerCase()}`,
     password,
@@ -62,12 +66,12 @@ export function createSharedDatabaseIdentity(projectId: string, resourceId: stri
   return identity;
 }
 
-function isManagedUser(value: unknown, resourceId: string): boolean {
+function isManagedUser(value: unknown, identity: SharedDatabaseIdentity): boolean {
   if (typeof value !== "object" || value === null) return false;
   const customData = (value as { customData?: unknown }).customData;
   if (typeof customData !== "object" || customData === null) return false;
-  const metadata = customData as { managedBy?: unknown; resourceId?: unknown };
-  return metadata.managedBy === MANAGED_BY && metadata.resourceId === resourceId;
+  const metadata = customData as { managedBy?: unknown; projectId?: unknown; resourceId?: unknown };
+  return metadata.managedBy === MANAGED_BY && metadata.projectId === identity.projectId && metadata.resourceId === identity.resourceId;
 }
 
 async function findUser(database: Db, username: string): Promise<unknown | undefined> {
@@ -85,8 +89,8 @@ function userRoles(databaseName: string): Document[] {
   return [{ role: "readWrite", db: databaseName }];
 }
 
-function userMetadata(resourceId: string): Document {
-  return { managedBy: MANAGED_BY, resourceId };
+function userMetadata(identity: SharedDatabaseIdentity): Document {
+  return { managedBy: MANAGED_BY, projectId: identity.projectId, resourceId: identity.resourceId };
 }
 
 /**
@@ -104,14 +108,14 @@ export async function provisionSharedDatabaseUser(
   const target = adminClient.db(identity.databaseName);
   const existing = await findUser(target, identity.username);
   if (existing !== undefined) {
-    if (!isManagedUser(existing, identity.resourceId)) {
+    if (!isManagedUser(existing, identity)) {
       throw new Error("A MongoDB user with this name exists but is not owned by this resource.");
     }
     await target.command({
       updateUser: identity.username,
       pwd: identity.password,
       roles: userRoles(identity.databaseName),
-      customData: userMetadata(identity.resourceId),
+      customData: userMetadata(identity),
       mechanisms: ["SCRAM-SHA-256"],
       writeConcern: { w: "majority" },
     });
@@ -133,7 +137,7 @@ export async function provisionSharedDatabaseUser(
     // deciding whether a retry can safely reconcile the user.
     const racedUser = await findUser(target, identity.username);
     if (racedUser === undefined) throw error;
-    if (!isManagedUser(racedUser, identity.resourceId)) {
+    if (!isManagedUser(racedUser, identity)) {
       throw new Error("A MongoDB user with this name exists but is not owned by this resource.");
     }
     await target.command({
