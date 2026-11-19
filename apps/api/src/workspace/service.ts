@@ -52,6 +52,7 @@ export async function withManagedDatabase<T>(
   let mongo: MongoClient | undefined;
   try {
     await pg.query("BEGIN");
+    await pg.query("SET LOCAL idle_in_transaction_session_timeout TO 45000");
     const access = await pg.query<{ role: string }>(
       `SELECT CASE WHEN u.is_platform_admin THEN 'platform_admin' ELSE pm.role END AS role
          FROM projects p
