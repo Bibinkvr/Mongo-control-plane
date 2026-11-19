@@ -107,7 +107,7 @@ describe("shared MongoDB provisioning", () => {
   it("removes only a user carrying the matching ownership marker", async () => {
     const fake = fakeAdminDb({
       user: identity.username,
-      customData: { managedBy: "mongo-control-plane", resourceId },
+      customData: { managedBy: "mongo-control-plane", projectId, resourceId },
     });
     const result = await removeSharedDatabaseUser(fake.admin, identity);
     expect(result.removed).toBe(true);
