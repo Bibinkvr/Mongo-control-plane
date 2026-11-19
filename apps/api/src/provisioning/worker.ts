@@ -138,8 +138,8 @@ async function loadResource(pool: Pool, job: ClaimedJob): Promise<ResourceRow> {
             r.key_version AS "keyVersion", r.encryption_context_version AS "encryptionContextVersion"
        FROM database_resources r
        LEFT JOIN users u ON u.id = r.created_by
-      WHERE r.id=$1 AND r.project_id=$2 AND r.status='provisioning'`,
-    [job.resource_id, job.project_id],
+      WHERE r.id=$1 AND r.project_id=$2 AND r.status=$3`,
+    [job.resource_id, job.project_id, job.operation === "delete" ? "deleting" : "provisioning"],
   );
   const row = result.rows[0];
   if (!row || !row.created_by) throw new Error("PROVISIONING_RESOURCE_UNAVAILABLE");
