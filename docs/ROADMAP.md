@@ -21,7 +21,8 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] Checksum-verified, advisory-lock-protected migration runner
 - [ ] Full permission catalog and fine-grained permission enforcement
 - [x] Authenticated project list, creation, and detail endpoints with membership-scoped SQL (real-DB verification pending)
-- [ ] Project membership administration and environments
+- [x] Project membership listing, add, role change, removal, and final-admin protection (PostgreSQL CI verified)
+- [ ] Project environments
 - [x] Server-side tenant isolation through membership-scoped project queries
 - [x] Append-only audit-event table with mutation guard trigger
 - [x] PostgreSQL integration and cross-project authorization tests (CI verified)
