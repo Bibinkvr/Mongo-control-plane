@@ -2,13 +2,13 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { z } from "zod";
 import type { Pool } from "pg";
 import { resolveSession } from "../auth/router.js";
-import { BackupRequestError, getProjectBackup, listProjectBackups, requestBackup } from "./repository.js";
+import { BackupRequestError, getProjectBackup, listProjectBackups, requestBackup, requestBackupDeletion } from "./repository.js";
 
 function sendBackupError(error: unknown, response: Response, next: NextFunction): void {
   if (error instanceof BackupRequestError) {
     const status = error.code === "PROJECT_NOT_FOUND" || error.code === "CONNECTION_NOT_FOUND" || error.code === "DATABASE_NOT_FOUND" || error.code === "BACKUP_NOT_FOUND" ? 404
       : error.code === "FORBIDDEN" ? 403
-      : error.code === "CONNECTION_DISABLED" || error.code === "DATABASE_NOT_READY" || error.code === "BACKUP_OPERATION_ACTIVE" ? 409 : 400;
+      : error.code === "CONNECTION_DISABLED" || error.code === "DATABASE_NOT_READY" || error.code === "BACKUP_OPERATION_ACTIVE" || error.code === "BACKUP_RETENTION_PROTECTED" || error.code === "BACKUP_NOT_DELETABLE" ? 409 : 400;
     response.status(status).json({ error: { code: error.code, message: error.message } });
     return;
   }
@@ -69,6 +69,23 @@ export function createBackupsRouter(pool: Pool): Router {
         name: body.data.name,
       });
       response.status(202).json({ backup });
+    } catch (error) { sendBackupError(error, response, next); }
+  });
+
+  router.delete("/:projectId/backups/:backupId", async (request, response, next) => {
+    const projectId = z.string().uuid().safeParse(request.params["projectId"]);
+    const backupId = z.string().uuid().safeParse(request.params["backupId"]);
+    if (!projectId.success || !backupId.success) {
+      response.status(400).json({ error: { code: "INVALID_ID", message: "A project or backup ID is invalid." } });
+      return;
+    }
+    try {
+      const deletion = await requestBackupDeletion(pool, {
+        caller: response.locals["backupCaller"] as { userId: string; isPlatformAdmin: boolean },
+        projectId: projectId.data,
+        backupId: backupId.data,
+      });
+      response.status(202).json({ backup: deletion });
     } catch (error) { sendBackupError(error, response, next); }
   });
 
