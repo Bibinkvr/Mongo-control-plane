@@ -424,13 +424,13 @@ integration("PostgreSQL schema and tenant isolation", () => {
     const workerDirectory = await mkdtemp(join(tmpdir(), "mcp-backup-worker-test-"));
     const storageRoot = await mkdtemp(join(tmpdir(), "mcp-backup-storage-test-"));
     const executablePath = join(workerDirectory, "mongodump");
-    const fakeTool = `#!/bin/sh
-if [ "$1" = "--version" ]; then
-  echo "mongodump version: 100.3.0"
-  exit 0
-fi
-printf "worker-integration-archive"
-`;
+    const fakeTool = `#!/usr/bin/env node
+if (process.argv[2] === "--version") {
+  process.stdout.write("mongodump version: 100.3.0\\n");
+} else {
+  process.stdout.write("worker-integration-archive");
+}
+`
     try {
       await writeFile(executablePath, fakeTool, { encoding: "utf8", mode: 0o700 });
       await chmod(executablePath, 0o700);
