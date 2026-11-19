@@ -6,7 +6,8 @@ import { checkPostgres } from "./db/health.js";
 import { createProjectsRouter } from "./projects/router.js";
 import { createConnectionsRouter } from "./connections/router.js";
 import { createDatabasesRouter } from "./provisioning/router.js";
-import { createWorkspaceRouter, type WorkspacePolicy } from "./workspace/router.js";
+import { createWorkspaceRouter } from "./workspace/router.js";
+import type { WorkspacePolicy } from "./workspace/service.js";
 import type { EncryptionKeyring } from "./connections/crypto.js";
 
 const notFoundHandler: RequestHandler = (_request, response) => {
