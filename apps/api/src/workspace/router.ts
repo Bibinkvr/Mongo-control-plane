@@ -9,6 +9,11 @@ import { DatabaseWorkspaceError, isSafeCollectionName, isSafeDocument, withManag
 
 const MAX_DOCUMENT_BYTES = 1_000_000;
 const MAX_RESPONSE_BYTES = 2_000_000;
+
+function jsonByteLength(value: unknown): number {
+  const serialized = JSON.stringify(value);
+  return typeof serialized === "string" ? Buffer.byteLength(serialized, "utf8") : Number.MAX_SAFE_INTEGER;
+}
 const collectionNameSchema = z.string().min(1).max(120).refine(isSafeCollectionName);
 
 function sendWorkspaceError(error: unknown, response: Response, next: NextFunction): void {
@@ -138,7 +143,7 @@ export function createWorkspaceRouter(pool: Pool, keyring: EncryptionKeyring, po
         .skip(pagination.data.skip)
         .limit(pagination.data.limit)
         .toArray());
-      if (Buffer.byteLength(JSON.stringify(documents), "utf8") > MAX_RESPONSE_BYTES) {
+      if (jsonByteLength(documents) > MAX_RESPONSE_BYTES) {
         response.status(413).json({ error: { code: "RESPONSE_TOO_LARGE", message: "Reduce the page size to retrieve these documents." } });
         return;
       }
@@ -177,7 +182,7 @@ export function createWorkspaceRouter(pool: Pool, keyring: EncryptionKeyring, po
       || Object.keys(body.data.set).length === 0
       || Object.prototype.hasOwnProperty.call(body.data.set, "_id")
       || !isSafeDocument(body.data.set)
-      || Buffer.byteLength(JSON.stringify(body.data.set), "utf8") > MAX_DOCUMENT_BYTES) {
+      || jsonByteLength(body.data.set) > MAX_DOCUMENT_BYTES) {
       response.status(400).json({ error: { code: "INVALID_UPDATE", message: "Provide safe fields to update; _id and MongoDB operators are not allowed." } });
       return;
     }
