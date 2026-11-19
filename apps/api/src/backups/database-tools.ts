@@ -170,16 +170,17 @@ export async function runMongodumpToEncryptedStorage(input: {
     return stored;
   } catch (error) {
     terminate();
-    if (exitPromise) await exitPromise.catch(() => undefined);
+    const failedExit = exitPromise ? await exitPromise.catch(() => undefined) : undefined;
     if (metadata) {
       await deleteEncryptedBackup(input.storageRoot, input.projectId, input.backupId).catch(() => undefined);
     }
     if (error instanceof DatabaseToolsError) throw error;
     if (timedOut) throw new DatabaseToolsError("TOOL_TIMEOUT", "mongodump exceeded its execution deadline.");
     if (cancelled) throw new DatabaseToolsError("BACKUP_CANCELLED", "Backup execution was cancelled.");
-    const diagnosticCode = typeof error === "object" && error !== null && "code" in error
-      && typeof error.code === "string" ? error.code
-      : error instanceof Error ? error.name : "UNKNOWN";
+    const diagnosticCode = error instanceof Error && error.message === "BACKUP_EMPTY"
+      ? `EMPTY_OUTPUT_EXIT_${failedExit?.code ?? "UNKNOWN"}`
+      : typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+        ? error.code : error instanceof Error ? error.name : "UNKNOWN";
     const diagnosticMessage = error instanceof Error
       ? error.message.replace(/mongodb(?:\+srv)?:\/\/[^\s]+/gi, "<redacted-uri>").slice(0, 120)
       : "Unknown adapter failure";
