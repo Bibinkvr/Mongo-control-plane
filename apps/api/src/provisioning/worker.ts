@@ -148,9 +148,27 @@ async function loadResource(pool: Pool, job: ClaimedJob): Promise<ResourceRow> {
   return row;
 }
 
+async function renewJobLease(pool: Pool, job: ClaimedJob, leaseSeconds: number): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE provisioning_jobs
+        SET lease_expires_at=now()+($3::int * interval '1 second'), locked_at=now(), updated_at=now()
+      WHERE id=$1 AND status='running' AND lock_token=$2`,
+    [job.id, job.lock_token, leaseSeconds],
+  );
+  return result.rowCount === 1;
+}
+
 async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJob, options: ProvisioningWorkerOptions): Promise<void> {
   let actorId: string | null = null;
   let adminClient: MongoClient | undefined;
+  let leaseLost = false;
+  const leaseSeconds = options.leaseSeconds ?? 120;
+  const heartbeat = setInterval(() => {
+    void renewJobLease(pool, job, leaseSeconds)
+      .then((renewed) => { if (!renewed) leaseLost = true; })
+      .catch(() => undefined);
+  }, Math.max(10_000, Math.floor(leaseSeconds * 1_000 / 3)));
+  heartbeat.unref();
   try {
     const resource = await loadResource(pool, job);
     const createdBy = resource.created_by;
@@ -185,10 +203,12 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
       await removeSharedDatabaseUser(adminClient, identity);
       await adminClient.db(resource.database_name).dropDatabase();
     }
+    if (leaseLost) throw new Error("PROVISIONING_LEASE_LOST");
     await completeJob(pool, job, createdBy);
   } catch {
     await failJob(pool, job, actorId);
   } finally {
+    clearInterval(heartbeat);
     await adminClient?.close().catch(() => undefined);
   }
 }
