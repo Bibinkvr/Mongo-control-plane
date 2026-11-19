@@ -3,6 +3,7 @@ import helmet from "helmet";
 import type { Pool } from "pg";
 import { createAuthRouter } from "./auth/router.js";
 import { checkPostgres } from "./db/health.js";
+import { createProjectsRouter } from "./projects/router.js";
 
 const notFoundHandler: RequestHandler = (_request, response) => {
   response.status(404).json({ error: { code: "NOT_FOUND", message: "The requested resource was not found." } });
@@ -48,9 +49,13 @@ export function createApp(options: AppOptions = {}) {
 
   if (options.pool) {
     app.use("/api/auth", createAuthRouter(options.pool, options.secureCookies ?? false));
+    app.use("/api/projects", createProjectsRouter(options.pool));
   } else {
     app.use("/api/auth", (_request, response) => {
       response.status(503).json({ error: { code: "DATABASE_UNAVAILABLE", message: "Authentication is temporarily unavailable." } });
+    });
+    app.use("/api/projects", (_request, response) => {
+      response.status(503).json({ error: { code: "DATABASE_UNAVAILABLE", message: "Project management is temporarily unavailable." } });
     });
   }
 
