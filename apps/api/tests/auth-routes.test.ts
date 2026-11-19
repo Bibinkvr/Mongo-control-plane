@@ -26,6 +26,14 @@ describe("authentication routes", () => {
           activeTokenHash = values[1] as Buffer;
           return { rows: [] };
         }
+        if (sql.includes("UPDATE sessions SET revoked_at")) {
+          const tokenHash = values[0] as Buffer;
+          if (!revoked && activeTokenHash?.equals(tokenHash)) {
+            revoked = true;
+            return { rows: [{ user_id: userId }] };
+          }
+          return { rows: [] };
+        }
         if (sql.includes("INSERT INTO audit_events")) return { rows: [] };
         if (sql.includes("FROM sessions s")) {
           const tokenHash = values[0] as Buffer;
