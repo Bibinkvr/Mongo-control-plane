@@ -134,6 +134,6 @@ export function parseEncryptionKeyring(raw: string | undefined, currentVersionRa
     keys.set(Number(versionText), key);
   }
   const currentVersion = Number(currentVersionRaw);
-  if (!Number.isSafeInteger(currentVersion) || !keys.has(currentVersion)) throw new Error("The current encryption key version must exist in the keyring.");
+  if (!Number.isSafeInteger(currentVersion) || currentVersion < 1 || !keys.has(currentVersion)) throw new Error("The current encryption key version must exist in the keyring.");
   return { currentVersion, keys };
 }
