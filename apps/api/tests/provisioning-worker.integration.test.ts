@@ -149,8 +149,6 @@ integration("database provisioning worker integration", () => {
       await pool.query("DELETE FROM provisioning_jobs WHERE resource_id=$1", [resource.id]);
       await pool.query("DELETE FROM database_resources WHERE id=$1", [resource.id]);
       await pool.query("DELETE FROM connection_targets WHERE id=$1", [connectionId]);
-      await pool.query("DELETE FROM projects WHERE id=$1", [projectId]);
-      await pool.query("DELETE FROM users WHERE id=$1", [user.rows[0]!.id]);
     }
   });
 });
