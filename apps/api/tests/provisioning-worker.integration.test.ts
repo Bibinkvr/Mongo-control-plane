@@ -76,6 +76,13 @@ integration("database provisioning worker integration", () => {
 
     const status = await pool.query<{ status: string }>("SELECT status FROM database_resources WHERE id=$1", [resource.id]);
     expect(status.rows[0]?.status).toBe("ready");
+    const backupPrincipal = await pool.query<{ username: string; ready_at: Date | null }>(
+      'SELECT backup_username AS username, backup_user_ready_at AS ready_at FROM database_resources WHERE id=$1',
+      [resource.id],
+    );
+    expect(backupPrincipal.rows[0]?.username).toMatch(/^bkp_[a-f0-9]{32}$/);
+    expect(backupPrincipal.rows[0]?.ready_at).toBeInstanceOf(Date);
+    const backupUsername = backupPrincipal.rows[0]!.username;
 
     const workspacePolicy = { tls: false, allowLoopback: true };
     const developerPassword = await hashPassword("workspace developer integration password");
@@ -155,20 +162,21 @@ integration("database provisioning worker integration", () => {
 
     const rotatedKey = Buffer.alloc(32, 88);
     const rotatedRing = { currentVersion: 2, keys: new Map([[1, keyring.keys.get(1)!], [2, rotatedKey]]) };
-    const beforeRotation = await pool.query<{ ciphertext: Buffer; wrappedDek: Buffer }>(
-      'SELECT credential_ciphertext AS ciphertext, wrapped_dek AS "wrappedDek" FROM database_resources WHERE id=$1',
+    const beforeRotation = await pool.query<{ ciphertext: Buffer; wrappedDek: Buffer; backupWrappedDek: Buffer }>(
+      'SELECT credential_ciphertext AS ciphertext, wrapped_dek AS "wrappedDek", backup_wrapped_dek AS "backupWrappedDek" FROM database_resources WHERE id=$1',
       [resource.id],
     );
     const rotation = await rotateDatabaseCredentialKey(pool, rotatedRing, {
       caller: { userId: user.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
     });
     expect(rotation).toEqual({ keyVersion: 2, rotated: true });
-    const afterRotation = await pool.query<{ ciphertext: Buffer; wrappedDek: Buffer }>(
-      'SELECT credential_ciphertext AS ciphertext, wrapped_dek AS "wrappedDek" FROM database_resources WHERE id=$1',
+    const afterRotation = await pool.query<{ ciphertext: Buffer; wrappedDek: Buffer; backupWrappedDek: Buffer }>(
+      'SELECT credential_ciphertext AS ciphertext, wrapped_dek AS "wrappedDek", backup_wrapped_dek AS "backupWrappedDek" FROM database_resources WHERE id=$1',
       [resource.id],
     );
     expect(afterRotation.rows[0]!.ciphertext).toEqual(beforeRotation.rows[0]!.ciphertext);
     expect(afterRotation.rows[0]!.wrappedDek).not.toEqual(beforeRotation.rows[0]!.wrappedDek);
+    expect(afterRotation.rows[0]!.backupWrappedDek).not.toEqual(beforeRotation.rows[0]!.backupWrappedDek);
 
     const revealedUri = await revealDatabaseConnectionUri(pool, rotatedRing, {
       caller: { userId: user.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
@@ -188,6 +196,9 @@ integration("database provisioning worker integration", () => {
     try {
       await adminClient.connect();
       await appClient.connect();
+      const backupUserInfo = await adminClient.db(resource.databaseName).command({ usersInfo: backupUsername });
+      const backupUsers = backupUserInfo["users"] as Array<{ roles: Array<{ role: string; db: string }> }>;
+      expect(backupUsers[0]?.roles).toEqual([{ role: "read", db: resource.databaseName }]);
       const collection = appClient.db(resource.databaseName).collection("access_probe");
       await collection.insertOne({ projectId, resourceId: resource.id });
       expect(await collection.countDocuments({ projectId })).toBe(1);
@@ -211,12 +222,12 @@ integration("database provisioning worker integration", () => {
       expect(deletion.status).toBe("deleting");
       expect(await processNextProvisioningJob(pool, rotatedRing, { tls: false, allowLoopback: true })).toBe(true);
 
-      const deletedState = await pool.query<{ status: string; credentialLength: number }>(
-        "SELECT status, octet_length(credential_ciphertext) AS \"credentialLength\" FROM database_resources WHERE id=$1",
+      const deletedState = await pool.query<{ status: string; credentialLength: number; backupUsername: string | null; backupCiphertext: Buffer | null }>(
+        "SELECT status, octet_length(credential_ciphertext) AS \"credentialLength\", backup_username AS \"backupUsername\", backup_credential_ciphertext AS \"backupCiphertext\" FROM database_resources WHERE id=$1",
         [resource.id],
       );
-      expect(deletedState.rows[0]).toEqual({ status: "deleted", credentialLength: 0 });
-      const afterDelete = await adminClient.db(resource.databaseName).command({ usersInfo: resource.username });
+      expect(deletedState.rows[0]).toMatchObject({ status: "deleted", credentialLength: 0, backupUsername: null, backupCiphertext: null });
+      const afterDelete = await adminClient.db(resource.databaseName).command({ usersInfo: [resource.username, backupUsername] });
       expect(afterDelete["users"]).toHaveLength(0);
       const remainingDatabases = await adminClient.db("admin").command({ listDatabases: 1, nameOnly: true });
       expect((remainingDatabases["databases"] as Array<{ name: string }>).map((item) => item.name)).not.toContain(resource.databaseName);
