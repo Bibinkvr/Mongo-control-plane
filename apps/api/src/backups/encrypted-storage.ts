@@ -34,6 +34,7 @@ function assertIds(projectId: string, backupId: string): void {
 }
 
 function getKey(keyring: EncryptionKeyring, version: number): Buffer {
+  if (!Number.isSafeInteger(version) || version < 1) throw new Error("Backup encryption key version is invalid.");
   const key = keyring.keys.get(version);
   if (!key || key.length !== KEY_BYTES) throw new Error("Backup encryption key version is unavailable or invalid.");
   return key;
@@ -78,6 +79,7 @@ async function readExactAt(handle: Awaited<ReturnType<typeof open>>, buffer: Buf
 }
 
 async function syncDirectory(path: string): Promise<void> {
+  if (process.platform === "win32") return;
   const handle = await open(path, "r");
   try { await handle.sync(); } finally { await handle.close(); }
 }
@@ -186,7 +188,7 @@ export async function decryptBackupToTemporaryFile(
   if (metadata.storageKey !== expectedStorageKey) throw new Error("Backup storage key does not match its owner.");
   if (metadata.nonce.length !== NONCE_BYTES || metadata.authTag.length !== TAG_BYTES
     || metadata.wrapNonce.length !== NONCE_BYTES || metadata.wrapAuthTag.length !== TAG_BYTES
-    || !Number.isSafeInteger(metadata.plaintextBytes) || metadata.plaintextBytes < 1
+    || !Number.isSafeInteger(metadata.plaintextBytes) || metadata.plaintextBytes < 1 || metadata.plaintextBytes > DEFAULT_MAX_BACKUP_BYTES
     || !/^[a-f0-9]{64}$/.test(metadata.sha256)) {
     throw new Error("Backup encryption metadata is invalid.");
   }
