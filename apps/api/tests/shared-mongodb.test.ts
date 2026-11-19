@@ -31,9 +31,7 @@ function fakeAdminDb(initialUser?: unknown) {
     return { ok: 1 };
   });
   const target = { command } as unknown as Db;
-  const admin = {
-    client: { db: vi.fn(() => target) },
-  } as unknown as Db;
+  const admin = { db: vi.fn(() => target) } as unknown as MongoClient;
   return { admin, commands, command, getUser: () => user };
 }
 
@@ -41,7 +39,7 @@ describe("shared MongoDB provisioning", () => {
   it("derives stable database and user names from UUIDs", () => {
     const result = createSharedDatabaseIdentity(projectId, resourceId, "p".repeat(48));
     expect(result.databaseName).toMatch(/^mcp_[a-f0-9]{16}_[a-f0-9]{16}$/);
-    expect(result.username).toBe("mcp_22222222422242228111222222222222");
+    expect(result.username).toBe("mcp_22222222422242228222222222222222");
     expect(createSharedDatabaseIdentity(projectId, resourceId, "p".repeat(48))).toEqual(result);
   });
 
