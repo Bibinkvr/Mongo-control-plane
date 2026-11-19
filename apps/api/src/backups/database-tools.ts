@@ -15,6 +15,7 @@ export class DatabaseToolsError extends Error {
     public readonly code: "TOOL_UNAVAILABLE" | "TOOL_VERSION_UNSUPPORTED" | "TOOL_TIMEOUT" | "TOOL_FAILED" | "BACKUP_CANCELLED",
     message: string,
     public readonly diagnosticCode?: string,
+    public readonly diagnosticMessage?: string,
   ) {
     super(message);
     this.name = "DatabaseToolsError";
@@ -179,7 +180,10 @@ export async function runMongodumpToEncryptedStorage(input: {
     const diagnosticCode = typeof error === "object" && error !== null && "code" in error
       && typeof error.code === "string" ? error.code
       : error instanceof Error ? error.name : "UNKNOWN";
-    throw new DatabaseToolsError("TOOL_FAILED", "mongodump or encrypted storage failed.", diagnosticCode);
+    const diagnosticMessage = error instanceof Error
+      ? error.message.replace(/mongodb(?:\\+srv)?:\\/\\/[^\\s]+/gi, "<redacted-uri>").slice(0, 120)
+      : "Unknown adapter failure";
+    throw new DatabaseToolsError("TOOL_FAILED", "mongodump or encrypted storage failed.", diagnosticCode, diagnosticMessage);
   } finally {
     if (timeoutTimer) clearTimeout(timeoutTimer);
     if (killTimer) clearTimeout(killTimer);
