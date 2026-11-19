@@ -489,6 +489,37 @@ if (process.argv[2] === "--version") {
         [jobId],
       );
       expect(completedJob.rows[0]?.status).toBe("succeeded");
+
+      await db().query("UPDATE backup_records SET retention_protected=true WHERE id=$1", [backupId]);
+      const protectedDelete = await ownerApi.delete(`/api/projects/${projectId}/backups/${backupId}`)
+        .set("Cookie", `mcp_session=${ownerToken}`);
+      expect(protectedDelete.status).toBe(409);
+      expect(protectedDelete.body.error.code).toBe("BACKUP_RETENTION_PROTECTED");
+
+      await db().query("UPDATE backup_records SET retention_protected=false WHERE id=$1", [backupId]);
+      const deleteRequest = await ownerApi.delete(`/api/projects/${projectId}/backups/${backupId}`)
+        .set("Cookie", `mcp_session=${ownerToken}`);
+      expect(deleteRequest.status).toBe(202);
+      expect(deleteRequest.body.backup.status).toBe("deleting");
+      expect(await processNextBackupJob(db(), keyring, {
+        executablePath,
+        storageRoot,
+        egressIsolationConfirmed: true,
+        maxBytes: 1_000_000,
+        timeoutMs: 10_000,
+      })).toBe(true);
+
+      const deletedRecord = await db().query<{ status: string; storage_key: string | null; nonce: Buffer | null }>(
+        "SELECT status, storage_key, nonce FROM backup_records WHERE id=$1",
+        [backupId],
+      );
+      expect(deletedRecord.rows[0]).toEqual({ status: "deleted", storage_key: null, nonce: null });
+      expect(await readdir(join(storageRoot, projectId))).toEqual([]);
+      const deleteJob = await db().query<{ status: string }>(
+        "SELECT status FROM backup_jobs WHERE backup_id=$1 AND operation='delete'",
+        [backupId],
+      );
+      expect(deleteJob.rows[0]?.status).toBe("succeeded");
     } finally {
       await Promise.all([
         rm(workerDirectory, { recursive: true, force: true }),
@@ -501,7 +532,7 @@ if (process.argv[2] === "--version") {
       [projectId, backupId],
     );
     expect(event.rows.map((row) => row.action)).toEqual([
-      "backup.request", "backup.credential.use", "backup.completed",
+      "backup.request", "backup.credential.use", "backup.completed", "backup.delete.request", "backup.deleted",
     ]);
   });
 
