@@ -430,7 +430,7 @@ if [ "$1" = "--version" ]; then
   exit 0
 fi
 printf "worker-integration-archive"
-`
+`;
     try {
       await writeFile(executablePath, fakeTool, { encoding: "utf8", mode: 0o700 });
       await chmod(executablePath, 0o700);
