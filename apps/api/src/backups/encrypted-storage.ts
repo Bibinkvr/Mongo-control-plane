@@ -48,8 +48,11 @@ function wrapAad(projectId: string, backupId: string, version: number): Buffer {
 }
 
 async function ensurePrivateDirectory(path: string): Promise<string> {
-  if (resolve(path) === parse(resolve(path)).root) throw new Error("Backup storage root must be a dedicated directory.");
-  await mkdir(path, { recursive: true, mode: 0o700 });
+  const absolutePath = resolve(path);
+  if (absolutePath === parse(absolutePath).root || absolutePath === resolve(process.cwd())) {
+    throw new Error("Backup storage root must be a dedicated directory.");
+  }
+  await mkdir(absolutePath, { recursive: true, mode: 0o700 });
   const info = await lstat(path);
   if (!info.isDirectory() || info.isSymbolicLink()) {
     throw new Error("Backup storage path must be a real directory, not a symbolic link.");
@@ -97,6 +100,7 @@ export async function writeEncryptedBackup(
     throw new Error("Backup size limit is invalid.");
   }
 
+  if (!storageRoot.trim()) throw new Error("Backup storage root is required.");
   const root = await ensurePrivateDirectory(resolve(storageRoot));
   const projectDirectory = await ensurePrivateDirectory(join(root, projectId));
   const finalPath = resolve(projectDirectory, `${backupId}.mcpbackup`);
