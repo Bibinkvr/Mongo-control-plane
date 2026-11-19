@@ -18,11 +18,11 @@ function fakeAdminDb(initialUser?: unknown) {
     commands.push(input);
     if ("usersInfo" in input) return { users: user === undefined ? [] : [user] };
     if ("createUser" in input) {
-      user = { user: input.createUser, customData: input.customData };
+      user = { user: input["createUser"], customData: input["customData"] };
       return { ok: 1 };
     }
     if ("updateUser" in input) {
-      user = { user: input.updateUser, customData: input.customData };
+      user = { user: input["updateUser"], customData: input["customData"] };
       return { ok: 1 };
     }
     if ("dropUser" in input) {
@@ -82,7 +82,7 @@ describe("shared MongoDB provisioning", () => {
       commands.push(input);
       if ("usersInfo" in input) return { users: user === undefined ? [] : [user] };
       if ("createUser" in input) {
-        user = { user: input.createUser, customData: input.customData };
+        user = { user: input["createUser"], customData: input["customData"] };
         throw Object.assign(new Error("UserAlreadyExists"), { code: 51003 });
       }
       if ("updateUser" in input) return { ok: 1 };
