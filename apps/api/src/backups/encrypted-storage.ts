@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEq
 import { createReadStream, createWriteStream } from "node:fs";
 import { appendFile, chmod, link, lstat, mkdir, mkdtemp, open, realpath, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, parse, relative, resolve, sep } from "node:path";
+import { join, parse, relative, resolve, sep } from "node:path";
 import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { EncryptionKeyring } from "../connections/crypto.js";
@@ -194,7 +194,8 @@ export async function decryptBackupToTemporaryFile(
   const filePath = resolve(projectDirectory, `${backupId}.mcpbackup`);
   assertWithinRoot(root, filePath);
   const fileInfo = await lstat(filePath);
-  if (!fileInfo.isFile() || fileInfo.isSymbolicLink() || fileInfo.size <= HEADER_BYTES + TAG_BYTES) {
+  if (!fileInfo.isFile() || fileInfo.isSymbolicLink() || fileInfo.size <= HEADER_BYTES + TAG_BYTES
+    || fileInfo.size - HEADER_BYTES - TAG_BYTES !== metadata.plaintextBytes) {
     throw new Error("Backup object is missing or invalid.");
   }
 
