@@ -150,7 +150,10 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
     }
     adminClient = new MongoClient(adminUri, {
       tls: options.tls ?? true,
-      lookup: createSafeMongoLookup({ allowPrivateNetworks: options.allowPrivateNetworks, allowLoopback: options.allowLoopback }),
+      lookup: createSafeMongoLookup({
+        ...(options.allowPrivateNetworks !== undefined ? { allowPrivateNetworks: options.allowPrivateNetworks } : {}),
+        ...(options.allowLoopback !== undefined ? { allowLoopback: options.allowLoopback } : {}),
+      }),
       serverSelectionTimeoutMS: 10_000,
       connectTimeoutMS: 10_000,
       socketTimeoutMS: 30_000,
