@@ -47,6 +47,7 @@ function isAllowedIpv6(address: string, policy: MongoNetworkPolicy): boolean {
   const mapped = mappedIpv4(value);
   if (mapped) return isAllowedIpv4(mapped, policy);
   if (value.startsWith("::") || value.startsWith("fd00:ec2::254")) return false;
+  if (value.startsWith("fc") || value.startsWith("fd")) return policy.allowPrivateNetworks === true;
 
   // Only global-unicast 2000::/3 is eligible. This rejects ULA, link-local,
   // multicast, unspecified, site-local, NAT64 and other special-purpose space.
