@@ -33,8 +33,9 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] AES-256-GCM envelope encryption with per-secret DEKs and versioned KEKs
 - [x] DEK re-wrapping key rotation without decrypting MongoDB URI plaintext
 - [x] Rename and enable/disable connection targets with audit events
-- [x] PostgreSQL integration coverage for encrypted storage, key rotation, CRUD, and tenant permissions (pending CI verification)
-- [ ] Secret use/reveal workflow for trusted server-side services (never expose credentials to browser)
+- [x] PostgreSQL integration coverage for encrypted storage, key rotation, CRUD, credential authorization, and tenant permissions (CI verification pending)
+- [x] Internal server-side credential loader with project membership checks, `connection:use` permission, disabled-target rejection, and audit events (CI verification pending)
+- [x] Context-bound AES-GCM AAD for new secrets, with versioned compatibility for existing records
 - [ ] Safe connection testing and SSRF/DNS-rebinding/egress protections
 - [ ] Per-project connection pooling
 - [ ] Production KMS/secret-manager adapter and operational key-rotation runbook
