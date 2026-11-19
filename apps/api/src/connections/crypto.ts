@@ -133,7 +133,7 @@ export function parseEncryptionKeyring(raw: string | undefined, currentVersionRa
   }
   const keys = new Map<number, Buffer>();
   for (const [versionText, value] of Object.entries(parsed)) {
-    if (!/^\\d+$/.test(versionText) || typeof value !== "string") throw new Error("Encryption keyring entries must map numeric versions to base64 strings.");
+    if (!/^\d+$/.test(versionText) || typeof value !== "string") throw new Error("Encryption keyring entries must map numeric versions to base64 strings.");
     const key = Buffer.from(value, "base64");
     if (key.length !== KEY_BYTES || key.toString("base64") !== value) throw new Error(`Encryption key version ${versionText} must be canonical base64 for exactly 32 bytes.`);
     keys.set(Number(versionText), key);
