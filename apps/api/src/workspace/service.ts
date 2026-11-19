@@ -1,10 +1,11 @@
-import { MongoClient, type Db, type Document } from "mongodb";
+import type { Db, Document } from "mongodb";
 import type { Pool } from "pg";
 import { hasProjectPermission, type ProjectPermission } from "../auth/permissions.js";
 import { loadConnectionCredentialInTransaction, type CredentialCaller } from "../connections/credential-service.js";
 import { decryptSecretString, type EncryptedConnectionSecret, type EncryptionKeyring } from "../connections/crypto.js";
 import { buildDatabaseConnectionUri } from "../provisioning/credentials.js";
 import { createSafeMongoLookup, type MongoNetworkPolicy } from "../provisioning/network-guard.js";
+import { defaultMongoClientManager } from "./mongo-client-manager.js";
 
 export type WorkspacePolicy = MongoNetworkPolicy & { tls?: boolean };
 export class DatabaseWorkspaceError extends Error {
@@ -49,7 +50,6 @@ export async function withManagedDatabase<T>(
   operation: (database: Db) => Promise<T>,
 ): Promise<T> {
   const pg = await pool.connect();
-  let mongo: MongoClient | undefined;
   try {
     await pg.query("BEGIN");
     await pg.query("SET LOCAL idle_in_transaction_session_timeout TO 45000");
@@ -108,7 +108,7 @@ export async function withManagedDatabase<T>(
       policy.tls ?? true,
     );
 
-    mongo = new MongoClient(applicationUri, {
+    const clientOptions = {
       tls: policy.tls ?? true,
       lookup: createSafeMongoLookup({
         ...(policy.allowPrivateNetworks !== undefined ? { allowPrivateNetworks: policy.allowPrivateNetworks } : {}),
@@ -117,14 +117,20 @@ export async function withManagedDatabase<T>(
       serverSelectionTimeoutMS: 10_000,
       connectTimeoutMS: 10_000,
       socketTimeoutMS: 30_000,
-      maxPoolSize: 2,
+      maxPoolSize: 10,
       minPoolSize: 0,
-      maxConnecting: 1,
-      writeConcern: { w: "majority" },
+      maxConnecting: 2,
+      waitQueueTimeoutMS: 5_000,
+      writeConcern: { w: "majority" as const },
       appName: "MongoControlPlaneWorkspace",
-    });
-    await mongo.connect();
-    const result = await operation(mongo.db(resource.database_name));
+    };
+    const result = await defaultMongoClientManager.withDatabase(
+      resource.id,
+      applicationUri,
+      clientOptions,
+      resource.database_name,
+      operation,
+    );
 
     if (request.auditAction) {
       await pg.query(
@@ -145,7 +151,6 @@ export async function withManagedDatabase<T>(
     await pg.query("ROLLBACK");
     throw error;
   } finally {
-    await mongo?.close().catch(() => undefined);
     pg.release();
   }
 }
