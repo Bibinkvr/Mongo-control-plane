@@ -163,7 +163,9 @@ export async function getProjectBackup(
   backupId: string,
 ): Promise<{
   id: string;
+  databaseId: string | null;
   connectionId: string;
+  databaseName: string | null;
   name: string;
   format: string;
   status: string;
@@ -191,10 +193,10 @@ export async function getProjectBackup(
   }
 
   const result = await pool.query(
-    `SELECT id, connection_id AS "connectionId", name, format, status,
-            plaintext_bytes::text AS "plaintextBytes", sha256,
-            last_error_code AS "lastErrorCode", retention_protected AS "retentionProtected",
-            created_at AS "createdAt", started_at AS "startedAt", completed_at AS "completedAt"
+    `SELECT b.id, b.database_id AS "databaseId", b.connection_id AS "connectionId", d.database_name AS "databaseName", b.name, b.format, b.status,
+            b.plaintext_bytes::text AS "plaintextBytes", b.sha256,
+            b.last_error_code AS "lastErrorCode", b.retention_protected AS "retentionProtected",
+            b.created_at AS "createdAt", b.started_at AS "startedAt", b.completed_at AS "completedAt"
        FROM backup_records b LEFT JOIN database_resources d ON d.id=b.database_id
       WHERE b.project_id=$1 AND b.id=$2 AND b.status <> 'deleted'`,
     [projectId, backupId],
