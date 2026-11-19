@@ -2,7 +2,7 @@
 
 ## Current implementation status
 
-The API exposes authenticated backup request and inventory endpoints, backed by PostgreSQL metadata and a durable job queue. Requests are queued transactionally and audited. The isolated worker that executes `mongodump`, restore endpoints, retention policies, scheduling, and a backup UI are not implemented. The current system cannot yet produce a usable backup and must not be described as an end-to-end or production backup service.
+The API exposes authenticated backup request and inventory endpoints, backed by PostgreSQL metadata and a durable job queue. Requests are queued transactionally and audited. A leased background worker and fixed-argument `mongodump` adapter are implemented. The worker is disabled by default and must not be enabled until a separate network namespace/container has a verified outbound allowlist. CI exercises the adapter and worker with a fake executable; it does not yet prove compatibility with a real MongoDB Database Tools installation or customer MongoDB topology. Restore endpoints, retention policies, scheduling, object storage, and a backup UI remain unimplemented. This is not yet a production backup service.
 
 ## Backup request API\n\n- `POST /api/projects/:projectId/backups` queues a backup request for one ready managed database (`databaseId`), not an entire connection. It returns HTTP 202 with a backup ID and job ID. It does not run a dump in the API process.\n- `GET /api/projects/:projectId/backups` lists backup metadata (maximum 100 rows per request).\n- `GET /api/projects/:projectId/backups/:backupId` returns one project-scoped backup record.\n- `backup:manage` is required to queue a backup; `backup:read` is required to list or inspect. Project membership is checked server-side. The caller cannot provide a storage path, MongoDB URI, executable, or shell arguments.\n- Backup record and job creation plus the audit event are committed in one PostgreSQL transaction. A composite foreign key binds the backup's project, connection, and managed database IDs, preventing mismatched target references. Legacy connection-scoped queued records are failed during migration 006 rather than executed with unsafe scope. The queue uses a separate `backup_jobs` table with lease fields for a future worker.\n- API responses intentionally omit storage keys and encryption envelope metadata.\n\n## Storage envelope
 
@@ -20,9 +20,9 @@ Each backup object is identified by a project UUID and backup UUID. The storage 
 
 The local filesystem adapter is single-node storage. A multi-node deployment needs a private object-storage adapter with conditional object creation, encrypted transport, access controls, lifecycle policies, and a documented durability model. Do not put the backup root under a public web root or a user-writable directory.
 
-## Planned dump/restore adapter
+## Implemented dump adapter and worker
 
-The planned logical backup adapter uses the official MongoDB Database Tools:
+The worker claims backup jobs using PostgreSQL `SKIP LOCKED`, renewable leases, bounded retries, and audit events. It loads a credential only while it owns the job lease, uses the managed database's scoped user, and supplies a server-generated `--nsInclude` filter for that database. The adapter runs a configured absolute `mongodump` executable with `shell: false`, streams archive output directly into encrypted storage, enforces a byte limit and deadline, ignores stderr to avoid credential leakage, and deletes the object if the tool exits unsuccessfully.\n\nThe adapter uses the official MongoDB Database Tools:
 
 - `mongodump --archive --gzip` writes one compressed archive to stdout.
 - `mongorestore --archive --gzip` restores from an archive stream or file.
@@ -41,7 +41,7 @@ Official references:
 
 The Node.js MongoDB driver can use the application's DNS-pinned lookup callback. The external Database Tools binaries do not use that callback. Therefore, a backup worker must not run `mongodump` against customer-controlled connection strings until its network namespace/container has an enforced egress policy that allows only approved database destinations and blocks loopback, link-local, cloud metadata, multicast, and reserved ranges. DNS validation alone is not enough if the actual process can resolve a different address.
 
-The worker must retrieve the connection URI only through the internal credential service after authorization, and must not log it. No public API route may accept a URI, host, binary path, command, or arbitrary restore options.
+The worker retrieves a managed database credential only through a lease-bound internal service, and must not log the URI. **Current limitation:** the managed database credential is the application's existing database-scoped user, which currently has `readWrite` privileges. Before production use, provision a separate `read`-only backup user and make the worker require that credential; do not fall back to the application's write-capable credential. No public API route may accept a URI, host, binary path, command, or arbitrary restore options.
 
 ## Consistency and restore semantics
 
@@ -53,7 +53,7 @@ Restore is a destructive operation. The eventual API must require a project-leve
 
 - Backup metadata schema and API authorization.
 - Durable scheduling and retry-safe backup/restore jobs.
-- Isolated worker with enforceable egress firewall policy.
+- Isolated worker with enforceable egress firewall policy (the environment flag is only an operator attestation).\n- Separate read-only backup database user and encrypted credential lifecycle.\n- Real `mongodump` integration tests against the supported MongoDB versions and topologies.
 - Database Tools installation/version check and compatibility matrix.
 - Encrypted local and object-storage adapters.
 - Restore verification and failure compensation.
