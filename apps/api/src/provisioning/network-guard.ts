@@ -12,9 +12,6 @@ function ipv4Parts(address: string): number[] | undefined {
   const parts = address.split(".").map(Number);
   return parts.length === 4 && parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255) ? parts : undefined;
 }
-function inIpv4Range(parts: number[], first: number, second?: number, secondMask = 255): boolean {
-  return parts[0] === first && (second === undefined || (parts[1]! & secondMask) === second);
-}
 function isAllowedIpv4(address: string, policy: MongoNetworkPolicy): boolean {
   const p = ipv4Parts(address);
   if (!p) return false;
@@ -49,6 +46,7 @@ function isAllowedIpv6(address: string, policy: MongoNetworkPolicy): boolean {
   if (value === "::1") return policy.allowLoopback === true;
   const mapped = mappedIpv4(value);
   if (mapped) return isAllowedIpv4(mapped, policy);
+  if (value.startsWith("::")) return false;
   if (value.startsWith("fc") || value.startsWith("fd")) return policy.allowPrivateNetworks === true;
   if (/^fe[89ab]/.test(value) || value.startsWith("ff")) return false;
   if (value.startsWith("2001:db8:") || value.startsWith("2001:10:") || value.startsWith("2001:20:")) return false;
