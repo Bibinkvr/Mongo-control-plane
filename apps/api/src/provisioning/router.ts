@@ -2,12 +2,13 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { z } from "zod";
 import type { Pool } from "pg";
 import { resolveSession } from "../auth/router.js";
+import { ConnectionCredentialError } from "../connections/credential-service.js";
 import type { EncryptionKeyring } from "../connections/crypto.js";
 import { createDatabaseProvisioningRequest, listProjectDatabases, requestDatabaseDeletion, ProvisioningRequestError } from "./repository.js";
 import { DatabaseCredentialError, revealDatabaseConnectionUri, rotateDatabaseCredentialKey } from "./credentials.js";
 
 function sendProvisioningError(error: unknown, response: Response, next: NextFunction): void {
-  if (error instanceof ProvisioningRequestError || error instanceof DatabaseCredentialError) {
+  if (error instanceof ProvisioningRequestError || error instanceof DatabaseCredentialError || error instanceof ConnectionCredentialError) {
     const status = error.code === "PROJECT_NOT_FOUND" || error.code === "CONNECTION_NOT_FOUND" || error.code === "DATABASE_NOT_FOUND" ? 404
       : error.code === "FORBIDDEN" ? 403
       : error.code === "RESOURCE_NAME_TAKEN" || error.code === "DATABASE_OPERATION_ACTIVE" || error.code === "DATABASE_NOT_READY" ? 409
