@@ -172,3 +172,105 @@ export async function removeSharedDatabaseUser(
   });
   return { databaseName: identity.databaseName, username: identity.username, removed: true };
 }
+
+
+export type SharedDatabaseBackupIdentity = {
+  projectId: string;
+  databaseName: string;
+  username: string;
+  password: string;
+  resourceId: string;
+};
+
+const BACKUP_USERNAME_PATTERN = /^bkp_[a-f0-9]{32}$/;
+
+export function createSharedDatabaseBackupIdentity(
+  projectId: string,
+  resourceId: string,
+  password: string,
+): SharedDatabaseBackupIdentity {
+  if (!UUID_PATTERN.test(projectId) || !UUID_PATTERN.test(resourceId)) {
+    throw new Error("Project and resource IDs must be UUIDs.");
+  }
+  const projectPart = projectId.replaceAll("-", "").slice(0, 16).toLowerCase();
+  const resourcePart = resourceId.replaceAll("-", "").slice(0, 16).toLowerCase();
+  const identity = {
+    projectId: projectId.toLowerCase(),
+    databaseName: `mcp_${projectPart}_${resourcePart}`,
+    username: `bkp_${resourceId.replaceAll("-", "").toLowerCase()}`,
+    password,
+    resourceId: resourceId.toLowerCase(),
+  };
+  if (!BACKUP_USERNAME_PATTERN.test(identity.username)
+    || password.length < 32 || password.length > 256) {
+    throw new Error("Managed backup database identity is invalid.");
+  }
+  return identity;
+}
+
+function isManagedBackupUser(value: unknown, identity: SharedDatabaseBackupIdentity): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const customData = (value as { customData?: unknown }).customData;
+  if (typeof customData !== "object" || customData === null) return false;
+  const metadata = customData as { managedBy?: unknown; projectId?: unknown; resourceId?: unknown; managedRole?: unknown };
+  return metadata.managedBy === MANAGED_BY
+    && metadata.projectId === identity.projectId
+    && metadata.resourceId === identity.resourceId
+    && metadata.managedRole === "backup";
+}
+
+function backupUserMetadata(identity: SharedDatabaseBackupIdentity): Document {
+  return { managedBy: MANAGED_BY, projectId: identity.projectId, resourceId: identity.resourceId, managedRole: "backup" };
+}
+
+/** Creates or reconciles a database-scoped read-only user for mongodump. */
+export async function provisionSharedDatabaseBackupUser(
+  adminClient: MongoClient,
+  identity: SharedDatabaseBackupIdentity,
+): Promise<SharedDatabaseProvisioningResult> {
+  const target = adminClient.db(identity.databaseName);
+  const existing = await findUser(target, identity.username);
+  const command = {
+    pwd: identity.password,
+    roles: [{ role: "read", db: identity.databaseName }],
+    customData: backupUserMetadata(identity),
+    mechanisms: ["SCRAM-SHA-256"],
+    writeConcern: { w: "majority" },
+  };
+  if (existing !== undefined) {
+    if (!isManagedBackupUser(existing, identity)) {
+      throw new Error("A MongoDB backup user with this name exists but is not owned by this resource.");
+    }
+    await target.command({ updateUser: identity.username, ...command });
+    return { databaseName: identity.databaseName, username: identity.username, action: "reconciled" };
+  }
+  try {
+    await target.command({ createUser: identity.username, ...command });
+    return { databaseName: identity.databaseName, username: identity.username, action: "created" };
+  } catch (error) {
+    const racedUser = await findUser(target, identity.username);
+    if (racedUser === undefined) throw error;
+    if (!isManagedBackupUser(racedUser, identity)) {
+      throw new Error("A MongoDB backup user with this name exists but is not owned by this resource.");
+    }
+    await target.command({ updateUser: identity.username, ...command });
+    return { databaseName: identity.databaseName, username: identity.username, action: "reconciled" };
+  }
+}
+
+/** Removes only a read-only backup user carrying this resource's ownership marker. */
+export async function removeSharedDatabaseBackupUser(
+  adminClient: MongoClient,
+  identity: SharedDatabaseBackupIdentity,
+): Promise<SharedDatabaseRemovalResult> {
+  const target = adminClient.db(identity.databaseName);
+  const existing = await findUser(target, identity.username);
+  if (existing === undefined) {
+    return { databaseName: identity.databaseName, username: identity.username, removed: false };
+  }
+  if (!isManagedBackupUser(existing, identity)) {
+    throw new Error("Refusing to remove a MongoDB backup user not owned by this resource.");
+  }
+  await target.command({ dropUser: identity.username, writeConcern: { w: "majority" } });
+  return { databaseName: identity.databaseName, username: identity.username, removed: true };
+}
