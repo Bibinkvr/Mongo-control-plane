@@ -19,7 +19,7 @@ function caller(response: Response): Caller { return response.locals["connection
 function safeMetadata(row: DbRow) {
   return { id: row.id, name: row.name, kind: row.kind, hostLabel: row.host_label, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at };
 }
-const columns = "id, name, kind, host_label, status, secret_ciphertext AS ciphertext, secret_nonce AS nonce, secret_auth_tag AS \"authTag\", wrapped_dek AS \"wrappedDek\", wrap_nonce AS \"wrapNonce\", wrap_auth_tag AS \"wrapAuthTag\", key_version AS \"keyVersion\", created_at, updated_at";
+const columns = "id, name, kind, host_label, status, secret_ciphertext AS ciphertext, secret_nonce AS nonce, secret_auth_tag AS \"authTag\", wrapped_dek AS \"wrappedDek\", wrap_nonce AS \"wrapNonce\", wrap_auth_tag AS \"wrapAuthTag\", key_version AS \"keyVersion\", encryption_context_version AS \"encryptionContextVersion\", created_at, updated_at";
 
 async function projectRole(pool: Pool, projectId: string, user: Caller): Promise<string | null> {
   const result = await pool.query<{ role: string }>(
