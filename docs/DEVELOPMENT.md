@@ -189,7 +189,7 @@ The permission catalog is centralized in `apps/api/src/auth/permissions.ts`:
 | Member list | Yes | Yes | Yes |
 | Member management | Yes | No | No |
 | Connection metadata read | Yes | Yes | Yes |
-| Use connection credential (server-only) | Yes | Yes | No |
+| Use connection credential (server-only) | Yes | Yes | Yes |
 | Connection management | Yes | No | No |
 | Database read | Yes | Yes | Yes |
 | Database write | Yes | Yes | No |
