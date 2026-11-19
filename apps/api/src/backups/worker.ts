@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import type { EncryptionKeyring } from "../connections/crypto.js";
 import { deleteEncryptedBackup } from "./encrypted-storage.js";
-import { loadBackupDatabaseCredential } from "./credential-service.js";
+import { BackupCredentialError, loadBackupDatabaseCredential } from "./credential-service.js";
 import { DatabaseToolsError, runMongodumpToEncryptedStorage } from "./database-tools.js";
 
 type ClaimedBackupJob = {
@@ -193,8 +193,12 @@ async function isBackupMetadataCommitted(
 }
 
 function safeErrorCode(error: unknown): string {
-  if (error instanceof DatabaseToolsError) return error.code;
+  if (error instanceof DatabaseToolsError || error instanceof BackupCredentialError) return error.code;
   if (error instanceof Error && error.message === "BACKUP_LEASE_LOST") return "BACKUP_LEASE_LOST";
+  if (typeof error === "object" && error !== null && "code" in error
+    && typeof error.code === "string" && /^[0-9A-Z]{5}$/.test(error.code)) {
+    return `DATABASE_${error.code}`;
+  }
   return "BACKUP_FAILED";
 }
 
@@ -248,13 +252,15 @@ async function processBackupJob(
     await completeBackupJob(pool, job, actorId, metadata);
     metadata = undefined;
   } catch (error) {
+    const errorCode = safeErrorCode(error);
+    process.stderr.write(`Backup job ${job.id} failed with ${errorCode}.\\n`);
     if (metadata) {
       const committed = await isBackupMetadataCommitted(pool, job.backup_id, metadata.storageKey);
       if (!committed) {
         await deleteEncryptedBackup(options.storageRoot, job.project_id, job.backup_id).catch(() => undefined);
       }
     }
-    await failBackupJob(pool, job, actorId, safeErrorCode(error)).catch(() => undefined);
+    await failBackupJob(pool, job, actorId, errorCode).catch(() => undefined);
   } finally {
     clearInterval(heartbeat);
   }
