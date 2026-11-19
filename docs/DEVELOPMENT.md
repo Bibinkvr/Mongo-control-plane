@@ -33,14 +33,16 @@ The API listens on `127.0.0.1:5000` by default. Override `HOST` and `PORT` throu
 
 - `GET /health/live`: process liveness.
 - `GET /health/ready`: verifies PostgreSQL when the API pool is configured; Redis and MongoDB readiness are not yet included.
+- `GET /api/projects/:projectId/databases`: list database resources (requires `database:read`).
+- `POST /api/projects/:projectId/databases`: enqueue shared MongoDB database/user provisioning (requires `database:admin`); credentials are never returned in the response.
 
 ## Current limitations
 
-- Connection targets can be registered and encrypted, but connection testing and MongoDB provisioning are not implemented.
+- Shared database provisioning is implemented as a PostgreSQL-backed outbox with encrypted application credentials and a separate worker. It is not yet a complete MongoDB workspace or dedicated-deployment manager.
 - Connection metadata endpoints never return plaintext URIs or encryption material.
 - The current encryption keyring is environment-injected; production KMS integration and an operational rotation runbook remain outstanding.
 - Connection-route PostgreSQL integration tests are implemented and run in CI when `TEST_DATABASE_URL` is configured; verify the latest workflow before treating them as passed.
-- Arbitrary-host connection testing is intentionally disabled until SSRF, DNS rebinding, and outbound network controls are implemented.
+- The provisioning worker enforces TLS, validates every socket DNS result, and pins vetted addresses to block DNS rebinding and metadata/loopback access. RFC1918/ULA destinations require `MONGODB_ALLOW_PRIVATE_NETWORKS=true`; link-local and metadata destinations remain blocked. Test-only loopback access is not enabled in the production worker.
 - The current health endpoints are not a production readiness guarantee.
 
 Never put production credentials or customer data in local test fixtures.
@@ -148,7 +150,7 @@ The repository includes a development-only Compose stack for PostgreSQL, MongoDB
 
 The migration runner applies numbered SQL files in order, records SHA-256 checksums, serializes concurrent runners with a PostgreSQL advisory transaction lock, and refuses to run an already-applied migration whose contents have changed. Create a new migration instead of editing an applied one.
 
-The Compose MongoDB and Redis services are included for later feature development; the current API does not yet provision MongoDB databases or use Redis. Do not use the example credentials or this development stack as production deployment configuration.
+The API can enqueue shared database provisioning requests. Run the separate worker with `npm run worker --workspace @mongo-control-plane/api`; the worker requires the same PostgreSQL URL and encryption keyring as the API. It connects to configured MongoDB targets with TLS and the egress policy. Redis remains reserved for future workloads. Do not use the example credentials or this development stack as production deployment configuration.
 
 Project membership administration is also available:
 
