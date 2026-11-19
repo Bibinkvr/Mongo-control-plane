@@ -67,7 +67,7 @@ export class MongoClientManager {
     }
     const fingerprint = createHash("sha256").update(uri, "utf8").digest("hex");
     const key = identity + ":" + fingerprint;
-    let entry = this.entries.get(key);
+    let entry: ClientEntry | undefined = this.entries.get(key);
     if (!entry) {
       await this.makeRoom();
       if (this.closed) throw new Error("MongoDB client manager is shutting down.");
@@ -77,31 +77,33 @@ export class MongoClientManager {
           throw new Error("MongoDB client capacity is temporarily exhausted.");
         }
         const client = this.factory(uri, clientOptions);
-        entry = {
-        key,
-        client,
-        connected: Promise.resolve().then(() => client.connect()).then(() => undefined),
-        leases: 0,
-        lastUsedAt: Date.now(),
+        const created: ClientEntry = {
+          key,
+          identity,
+          client,
+          connected: Promise.resolve().then(() => client.connect()).then(() => undefined),
+          leases: 0,
+          lastUsedAt: Date.now(),
           closing: false,
           retiring: false,
           drainWaiters: [],
         };
-        this.entries.set(key, entry);
+        entry = created;
+        this.entries.set(key, created);
         for (const previous of this.entries.values()) {
           if (previous.identity === identity && previous.key !== key) {
             previous.retiring = true;
             if (previous.leases === 0) void this.closeEntry(previous);
           }
         }
-        void entry.connected.catch(async () => {
-          if (this.entries.get(key) === entry) this.entries.delete(key);
-          entry!.closing = true;
+        void created.connected.catch(async () => {
+          if (this.entries.get(key) === created) this.entries.delete(key);
+          created.closing = true;
           await client.close().catch(() => undefined);
         });
       }
     }
-
+    if (!entry) throw new Error("MongoDB client acquisition failed.");
     entry.leases += 1;
     try {
       await entry.connected;
