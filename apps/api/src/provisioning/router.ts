@@ -4,12 +4,14 @@ import type { Pool } from "pg";
 import { resolveSession } from "../auth/router.js";
 import type { EncryptionKeyring } from "../connections/crypto.js";
 import { createDatabaseProvisioningRequest, listProjectDatabases, ProvisioningRequestError } from "./repository.js";
+import { DatabaseCredentialError, revealDatabaseConnectionUri } from "./credentials.js";
 
 function sendProvisioningError(error: unknown, response: Response, next: NextFunction): void {
-  if (error instanceof ProvisioningRequestError) {
-    const status = error.code === "PROJECT_NOT_FOUND" || error.code === "CONNECTION_NOT_FOUND" ? 404
+  if (error instanceof ProvisioningRequestError || error instanceof DatabaseCredentialError) {
+    const status = error.code === "PROJECT_NOT_FOUND" || error.code === "CONNECTION_NOT_FOUND" || error.code === "DATABASE_NOT_FOUND" ? 404
       : error.code === "FORBIDDEN" ? 403
-      : error.code === "RESOURCE_NAME_TAKEN" ? 409 : 400;
+      : error.code === "RESOURCE_NAME_TAKEN" ? 409
+      : error.code === "DATABASE_NOT_READY" || error.code === "CONNECTION_DISABLED" ? 409 : 400;
     response.status(status).json({ error: { code: error.code, message: error.message } });
     return;
   }
@@ -39,20 +41,32 @@ export function createDatabasesRouter(pool: Pool, keyring: EncryptionKeyring): R
 
   router.post("/:projectId/databases", async (request, response, next) => {
     const projectId = z.string().uuid().safeParse(request.params["projectId"]);
-    const body = z.object({
-      connectionId: z.string().uuid(),
-      name: z.string().trim().min(1).max(100),
-    }).strict().safeParse(request.body);
+    const body = z.object({ connectionId: z.string().uuid(), name: z.string().trim().min(1).max(100) }).strict().safeParse(request.body);
     if (!projectId.success) { response.status(400).json({ error: { code: "INVALID_PROJECT_ID", message: "The project ID is invalid." } }); return; }
     if (!body.success) { response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Provide a valid connection ID and database name." } }); return; }
     try {
       const database = await createDatabaseProvisioningRequest(pool, keyring, {
         caller: response.locals["databaseCaller"] as { userId: string; isPlatformAdmin: boolean },
-        projectId: projectId.data,
-        connectionId: body.data.connectionId,
-        name: body.data.name,
+        projectId: projectId.data, connectionId: body.data.connectionId, name: body.data.name,
       });
       response.status(202).json({ database });
+    } catch (error) { sendProvisioningError(error, response, next); }
+  });
+
+  router.post("/:projectId/databases/:databaseId/credentials", async (request, response, next) => {
+    const projectId = z.string().uuid().safeParse(request.params["projectId"]);
+    const databaseId = z.string().uuid().safeParse(request.params["databaseId"]);
+    if (!projectId.success || !databaseId.success) {
+      response.status(400).json({ error: { code: "INVALID_ID", message: "A project or database ID is invalid." } });
+      return;
+    }
+    try {
+      const uri = await revealDatabaseConnectionUri(pool, keyring, {
+        caller: response.locals["databaseCaller"] as { userId: string; isPlatformAdmin: boolean },
+        projectId: projectId.data,
+        databaseId: databaseId.data,
+      });
+      response.status(200).json({ uri });
     } catch (error) { sendProvisioningError(error, response, next); }
   });
   return router;
