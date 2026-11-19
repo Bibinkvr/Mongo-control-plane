@@ -46,11 +46,28 @@ function isAllowedIpv6(address: string, policy: MongoNetworkPolicy): boolean {
   if (value === "::1") return policy.allowLoopback === true;
   const mapped = mappedIpv4(value);
   if (mapped) return isAllowedIpv4(mapped, policy);
-  if (value.startsWith("::")) return false;
-  if (value.startsWith("fc") || value.startsWith("fd")) return policy.allowPrivateNetworks === true;
-  if (/^fe[89ab]/.test(value) || value.startsWith("ff")) return false;
-  if (value.startsWith("2001:db8:") || value.startsWith("2001:10:") || value.startsWith("2001:20:")) return false;
-  if (value.startsWith("2002:") || value.startsWith("64:ff9b:")) return false;
+  if (value.startsWith("::") || value.startsWith("fd00:ec2::254")) return false;
+
+  // Only global-unicast 2000::/3 is eligible. This rejects ULA, link-local,
+  // multicast, unspecified, site-local, NAT64 and other special-purpose space.
+  const halves = value.split("::");
+  if (halves.length > 2) return false;
+  const left = halves[0] ? halves[0].split(":").filter(Boolean) : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(":").filter(Boolean) : [];
+  const missing = 8 - left.length - right.length;
+  if ((halves.length === 1 && missing !== 0) || (halves.length === 2 && missing < 1)) return false;
+  const groups = [...left, ...Array(Math.max(0, missing)).fill("0"), ...right];
+  if (groups.length !== 8 || groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return false;
+  const first = Number.parseInt(groups[0]!, 16);
+  const second = Number.parseInt(groups[1]!, 16);
+  const third = Number.parseInt(groups[2]!, 16);
+  if (first < 0x2000 || first > 0x3fff) return false;
+  if (first === 0x2001 && (
+    second === 0x0000 || second === 0x0002 || second === 0x0db8
+    || (second & 0xfff0) === 0x0010 || (second & 0xfff0) === 0x0020
+  )) return false;
+  if (first === 0x2002) return false; // 6to4 embeds an IPv4 destination.
+  if (first === 0x2001 && second === 0x0000 && third === 0) return false;
   return true;
 }
 
