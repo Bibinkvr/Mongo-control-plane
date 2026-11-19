@@ -39,7 +39,9 @@ describe("MongoClientManager", () => {
     expect(created).toHaveLength(2);
     expect(created[0]!.client.connect).toHaveBeenCalledTimes(1);
     expect(created[0]!.client.db).toHaveBeenCalledTimes(2);
-    expect(manager.size).toBe(2);
+    expect(manager.size).toBe(1);
+    expect(created[0]!.client.close).toHaveBeenCalledTimes(1);
+    expect(created[1]!.client.close).not.toHaveBeenCalled();
   });
 
   it("retires an old credential pool after its active operation finishes", async () => {
