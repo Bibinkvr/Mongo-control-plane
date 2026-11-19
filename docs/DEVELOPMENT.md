@@ -42,7 +42,7 @@ The API listens on `127.0.0.1:5000` by default. Override `HOST` and `PORT` throu
 - Connection metadata endpoints never return plaintext URIs or encryption material.
 - The current encryption keyring is environment-injected; production KMS integration and an operational rotation runbook remain outstanding.
 - Connection-route PostgreSQL integration tests are implemented and run in CI when `TEST_DATABASE_URL` is configured; verify the latest workflow before treating them as passed.
-- The provisioning worker enforces TLS, validates every socket DNS result, and pins vetted addresses to block DNS rebinding and metadata/loopback access. RFC1918/ULA destinations require `MONGODB_ALLOW_PRIVATE_NETWORKS=true`; link-local and metadata destinations remain blocked. Test-only loopback access is not enabled in the production worker.
+- The provisioning worker enforces TLS, validates every socket DNS result, and pins vetted addresses to block DNS rebinding and metadata/loopback access. RFC1918/ULA destinations require `MONGODB_ALLOW_PRIVATE_NETWORKS=true`; link-local and metadata destinations remain blocked. Loopback access is disabled by default and `MONGODB_ALLOW_LOOPBACK=true` is rejected in production; enable it only for isolated local development.
 - The current health endpoints are not a production readiness guarantee.
 
 Never put production credentials or customer data in local test fixtures.
