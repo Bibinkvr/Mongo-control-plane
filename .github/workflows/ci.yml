@@ -31,8 +31,22 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
+    services:
+      mongodb:
+        image: mongo:8.0
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: rootpassword
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --username \"$MONGO_INITDB_ROOT_USERNAME\" --password \"$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.adminCommand('ping').ok\""
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/mcp_control_plane_test
+      MONGODB_TEST_URI: mongodb://root:rootpassword@127.0.0.1:27017/admin?authSource=admin
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
