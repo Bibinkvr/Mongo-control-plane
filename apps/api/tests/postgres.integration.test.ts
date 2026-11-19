@@ -6,6 +6,7 @@ import { createApp } from "../src/app.js";
 import { hashPassword } from "../src/auth/password.js";
 import { createSessionToken, hashSessionToken } from "../src/auth/session.js";
 import { decryptConnectionUri } from "../src/connections/crypto.js";
+import { loadConnectionCredential } from "../src/connections/credential-service.js";
 import { runMigrations } from "../src/db/migrations.js";
 
 const databaseUrl = process.env["TEST_DATABASE_URL"] ?? "";
@@ -279,10 +280,22 @@ integration("PostgreSQL schema and tenant isolation", () => {
       encryptionContextVersion: 2,
     }, rotatedRing, { projectId, connectionId })).toBe(uri);
 
+    const credential = await loadConnectionCredential(db(), rotatedRing, {
+      caller: { userId: owner.rows[0]!.id, isPlatformAdmin: false }, projectId, connectionId,
+    });
+    expect(credential).toBe(uri);
+    await expect(loadConnectionCredential(db(), rotatedRing, {
+      caller: { userId: reader.rows[0]!.id, isPlatformAdmin: false }, projectId, connectionId,
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
     const renamed = await ownerApi.patch(`/api/projects/${projectId}/connections/${connectionId}`)
       .set("Cookie", ownerCookie).send({ name: "Primary Production", status: "disabled" });
     expect(renamed.status).toBe(200);
     expect(renamed.body.connection).toMatchObject({ name: "Primary Production", status: "disabled" });
+
+    await expect(loadConnectionCredential(db(), rotatedRing, {
+      caller: { userId: owner.rows[0]!.id, isPlatformAdmin: false }, projectId, connectionId,
+    })).rejects.toMatchObject({ code: "CONNECTION_DISABLED" });
 
     await expect(loadConnectionCredential(db(), rotatedRing, {
       caller: { userId: owner.rows[0]!.id, isPlatformAdmin: false }, projectId, connectionId,
@@ -301,7 +314,7 @@ integration("PostgreSQL schema and tenant isolation", () => {
       [projectId, connectionId],
     );
     expect(events.rows.map((event) => event.action)).toEqual([
-      "connection.create", "connection.key.rotate", "connection.update", "connection.delete",
+      "connection.create", "connection.key.rotate", "connection.credential.use", "connection.update", "connection.delete",
     ]);
   });
 
