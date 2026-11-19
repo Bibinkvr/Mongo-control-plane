@@ -10,12 +10,12 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] API process bootstrap, environment validation, and health endpoints
 - [x] API unit tests and GitHub Actions CI workflow definition
 - [ ] Generate and commit npm lockfile
-- [ ] Execute CI successfully and resolve any failures
+- [x] Execute GitHub Actions CI successfully (typecheck, build, and tests)
 - [ ] Local development Compose stack
 - [ ] Structured, secret-redacting application logging
 
 ## Phase 1 — Identity and project control
-- [x] Password login, logout, hashed opaque sessions, and one-time admin bootstrap (implementation; verification pending)
+- [x] Password login, logout, hashed opaque sessions, and one-time admin bootstrap (CI verified; PostgreSQL integration pending)
 - [ ] Production rate limiting, CSRF/origin policy, session cleanup, and security review
 - [x] Initial PostgreSQL schema for users, sessions, projects, memberships, and audit events
 - [ ] Users, roles, permissions
@@ -24,7 +24,7 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [ ] Server-side tenant isolation
 - [x] Append-only audit-event table with mutation guard trigger
 - [ ] Real PostgreSQL integration and cross-project authorization tests
-- [x] Auth route and session-helper test coverage (CI verification pending)
+- [x] Auth route and session-helper test coverage (CI verified)
 
 ## Phase 2 — Connection and secret management
 - [ ] Connection target registry
