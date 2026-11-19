@@ -91,11 +91,11 @@ function userMetadata(resourceId: string): Document {
  * ownership marker; an unrelated pre-existing user is never modified.
  */
 export async function provisionSharedDatabaseUser(
-  adminDatabase: Db,
+  adminClient: MongoClient,
   identity: SharedDatabaseIdentity,
 ): Promise<SharedDatabaseProvisioningResult> {
   assertIdentity(identity);
-  const target = adminDatabase.client.db(identity.databaseName);
+  const target = adminClient.db(identity.databaseName);
   const existing = await findUser(target, identity.username);
   if (existing !== undefined) {
     if (!isManagedUser(existing, identity.resourceId)) {
@@ -144,11 +144,11 @@ export async function provisionSharedDatabaseUser(
 
 /** Removes only a user whose custom ownership marker matches the resource. */
 export async function removeSharedDatabaseUser(
-  adminDatabase: Db,
+  adminClient: MongoClient,
   identity: SharedDatabaseIdentity,
 ): Promise<SharedDatabaseRemovalResult> {
   assertIdentity(identity);
-  const target = adminDatabase.client.db(identity.databaseName);
+  const target = adminClient.db(identity.databaseName);
   const existing = await findUser(target, identity.username);
   if (existing === undefined) {
     return { databaseName: identity.databaseName, username: identity.username, removed: false };
