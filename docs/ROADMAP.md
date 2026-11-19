@@ -16,10 +16,10 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 
 ## Phase 1 — Identity and project control
 - [ ] Authentication and secure session lifecycle
-- [ ] Users, roles, permissions
+- [x] Initial PostgreSQL schema for users, sessions, projects, memberships, and audit events\n- [ ] Users, roles, permissions
 - [ ] Projects and environments
 - [ ] Server-side tenant isolation
-- [ ] Append-only audit events
+- [x] Append-only audit-event table with mutation guard trigger
 - [ ] Integration and authorization tests
 
 ## Phase 2 — Connection and secret management
