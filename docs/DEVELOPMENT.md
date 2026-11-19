@@ -150,7 +150,17 @@ The repository includes a development-only Compose stack for PostgreSQL, MongoDB
 
 The migration runner applies numbered SQL files in order, records SHA-256 checksums, serializes concurrent runners with a PostgreSQL advisory transaction lock, and refuses to run an already-applied migration whose contents have changed. Create a new migration instead of editing an applied one.
 
-The API can enqueue shared database provisioning requests. Run the separate worker with `npm run worker --workspace @mongo-control-plane/api`; the worker requires the same PostgreSQL URL and encryption keyring as the API. It connects to configured MongoDB targets with TLS and the egress policy. Redis remains reserved for future workloads. Do not use the example credentials or this development stack as production deployment configuration.
+The API can enqueue shared database provisioning and deletion requests. Run the separate worker with `npm run worker --workspace @mongo-control-plane/api`; the worker requires the same PostgreSQL URL and encryption keyring as the API. It connects to configured MongoDB targets with TLS and DNS-pinned egress validation. Redis remains reserved for future workloads.
+
+Shared database endpoints (all responses use `Cache-Control: no-store`):
+
+- `GET /api/projects/:projectId/databases` — list non-deleted database resources (`database:read`).
+- `POST /api/projects/:projectId/databases` — enqueue provisioning with JSON `{ "connectionId": "...", "name": "..." }` (`database:admin`).
+- `POST /api/projects/:projectId/databases/:databaseId/credentials` — explicitly reveal a Compass-compatible URI (`database:use` and `connection:use`); every reveal is audited.
+- `POST /api/projects/:projectId/databases/:databaseId/rotate-key` — re-wrap the encrypted credential DEK without changing the ciphertext (`database:admin`).
+- `DELETE /api/projects/:projectId/databases/:databaseId` — enqueue deletion with JSON `{ "confirmDatabaseName": "exact-generated-database-name" }` (`database:admin`). The worker removes the owned user, drops the database, and wipes the encrypted credential envelope. The API returns `202`; poll the list endpoint for the final state.
+
+Only connections with kind `shared` can be used by this provisioning adapter. The configured connection URI must have valid TLS settings. The worker blocks loopback and link-local/metadata addresses; RFC1918/ULA targets require `MONGODB_ALLOW_PRIVATE_NETWORKS=true`. `MONGODB_ALLOW_LOOPBACK=true` is for isolated local development only and is rejected in production. Do not use the example credentials or this development stack as production deployment configuration.
 
 Project membership administration is also available:
 
@@ -177,7 +187,7 @@ The permission catalog is centralized in `apps/api/src/auth/permissions.ts`:
 | Connection management | Yes | No | No |
 | Database read | Yes | Yes | Yes |
 | Database write | Yes | Yes | No |
-| Database administration | Yes | No | No |
+| Database administration | Yes | No | No |\n| Use database credentials | Yes | Yes | No |
 | Backup read | Yes | Yes | Yes |
 | Backup management | Yes | No | No |
 | Audit read | Yes | No | No |
