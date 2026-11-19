@@ -46,6 +46,27 @@ describe("encrypted backup storage", () => {
     expect(await readdir(join(root, projectId))).toEqual([]);
   });
 
+  it("does not overwrite an existing backup object", async () => {
+    const root = await createRoot();
+    const original = Buffer.from("original backup contents");
+    const metadata = await writeEncryptedBackup(root, projectId, backupId, Readable.from([original]), keyring);
+
+    await expect(writeEncryptedBackup(
+      root,
+      projectId,
+      backupId,
+      Readable.from([Buffer.from("replacement")]),
+      keyring,
+    )).rejects.toMatchObject({ code: "EEXIST" });
+
+    const restored = await decryptBackupToTemporaryFile(root, projectId, backupId, metadata, keyring);
+    try {
+      expect(await readFile(restored.path)).toEqual(original);
+    } finally {
+      await restored.cleanup();
+    }
+  });
+
   it("rejects modified ciphertext and removes incomplete restore plaintext", async () => {
     const root = await createRoot();
     const payload = Buffer.from("sensitive archive content");
