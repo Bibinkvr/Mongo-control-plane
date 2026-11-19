@@ -107,7 +107,7 @@ The API supports project-scoped connection metadata and encrypted secret registr
 - `POST /api/projects/:projectId/connections/:connectionId/rotate-key` — re-wrap the per-secret data key using the current keyring version.
 - `DELETE /api/projects/:projectId/connections/:connectionId` — remove a registered connection.
 
-Connection creation, updates, key rotation, and deletion require `connection:manage`; listing requires `connection:read`. Mutations and their audit events are committed in one PostgreSQL transaction. PostgreSQL integration tests exercise encrypted persistence, metadata-only responses, project isolation, read-only denial, key rotation, updates, and deletion. All routes are project-membership scoped. The browser never receives a plaintext URI, ciphertext, nonce, authentication tag, wrapped key, or master key.
+Connection creation, updates, key rotation, and deletion require `connection:manage`; listing requires `connection:read`. Trusted server-side credential retrieval requires `connection:use` (project administrators and developers; not read-only members). Mutations and their audit events are committed in one PostgreSQL transaction. PostgreSQL integration tests exercise encrypted persistence, metadata-only responses, project isolation, read-only denial, key rotation, updates, and deletion. All routes are project-membership scoped. The browser never receives a plaintext URI, ciphertext, nonce, authentication tag, wrapped key, or master key. `loadConnectionCredential` in `apps/api/src/connections/credential-service.ts` is an internal server-only service: it checks membership and `connection:use`, refuses disabled targets, decrypts only after authorization, and writes a credential-use audit event. Callers must not log or serialize its returned URI.
 
 Configure `CONNECTION_ENCRYPTION_KEYS` as a JSON object mapping positive integer versions to canonical base64-encoded 32-byte keys, and `CONNECTION_ENCRYPTION_CURRENT_VERSION` to a version present in that object. Generate a local development key with:
 
@@ -115,7 +115,7 @@ Configure `CONNECTION_ENCRYPTION_KEYS` as a JSON object mapping positive integer
 openssl rand -base64 32
 ```
 
-Keep old key versions available until every stored secret has been re-wrapped. The rotate-key endpoint only re-wraps the data-encryption key; it does not return secret material. Store production keys in a secret manager and restrict access to the API process. Do not commit real key material.
+Keep old key versions available until every stored secret has been re-wrapped. Migration `003_connection_encryption_context.sql` adds an AAD-format version: pre-existing rows retain legacy AAD (version 1), while new rows use project- and connection-bound AAD (version 2). Key rotation preserves each row's AAD version; legacy secrets must be explicitly re-encrypted before they gain context binding. The rotate-key endpoint only re-wraps the data-encryption key; it does not return secret material. Store production keys in a secret manager and restrict access to the API process. Do not commit real key material.
 
 The URI parser checks the MongoDB scheme and basic host syntax only. It does not make a target safe to connect to. No endpoint currently opens a network connection to a supplied host; implement DNS resolution/pinning, forbidden-address checks, egress policy, timeouts, and resource limits before adding connection testing.
 
@@ -171,6 +171,7 @@ The permission catalog is centralized in `apps/api/src/auth/permissions.ts`:
 | Member list | Yes | Yes | Yes |
 | Member management | Yes | No | No |
 | Connection metadata read | Yes | Yes | Yes |
+| Use connection credential (server-only) | Yes | Yes | No |
 | Connection management | Yes | No | No |
 | Database read | Yes | Yes | Yes |
 | Database write | Yes | Yes | No |
