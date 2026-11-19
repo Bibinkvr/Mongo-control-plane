@@ -37,7 +37,7 @@ function clearSessionCookie(response: Response, secure: boolean): void {
   response.append("Set-Cookie", attributes.join("; "));
 }
 
-async function resolveSession(pool: Pool, request: Request): Promise<AuthenticatedUser | null> {
+export async function resolveSession(pool: Pool, request: Request): Promise<AuthenticatedUser | null> {
   const token = readSessionCookie(request.headers.cookie, COOKIE_NAME);
   if (!token) return null;
 
