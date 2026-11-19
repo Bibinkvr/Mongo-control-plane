@@ -61,6 +61,9 @@ export function createApp(options: AppOptions = {}) {
       app.use("/api/projects/:projectId/connections", (_request, response) => {
         response.status(503).json({ error: { code: "ENCRYPTION_UNAVAILABLE", message: "Connection management is temporarily unavailable." } });
       });
+      app.use("/api/projects/:projectId/databases", (_request, response) => {
+        response.status(503).json({ error: { code: "ENCRYPTION_UNAVAILABLE", message: "Database provisioning is temporarily unavailable." } });
+      });
     }
   } else {
     app.use("/api/auth", (_request, response) => {
