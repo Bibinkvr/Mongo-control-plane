@@ -430,7 +430,7 @@ if (process.argv[2] === "--version") {
 } else {
   process.stdout.write("worker-integration-archive");
 }
-`
+`;
     try {
       await writeFile(executablePath, fakeTool, { encoding: "utf8", mode: 0o700 });
       await chmod(executablePath, 0o700);
