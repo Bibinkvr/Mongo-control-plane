@@ -19,7 +19,7 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [ ] Production rate limiting, CSRF/origin policy, session cleanup, and security review
 - [x] Initial PostgreSQL schema for users, sessions, projects, memberships, and audit events
 - [x] Checksum-verified, advisory-lock-protected migration runner
-- [x] Central project permission catalog and role matrix (unit-tested; CI verification pending)
+- [x] Central project permission catalog and role matrix (CI verified)
 - [x] Authenticated project list, creation, and detail endpoints with membership-scoped SQL (real-DB verification pending)
 - [x] Project membership listing, add, role change, removal, and final-admin protection (PostgreSQL CI verified)
 - [ ] Project environments
