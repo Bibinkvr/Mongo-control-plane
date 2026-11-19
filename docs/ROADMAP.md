@@ -69,6 +69,7 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [ ] Backup scheduling and retention
 - [x] Encrypted streaming file-storage primitive with per-backup DEKs, context-bound AES-GCM, atomic publication, and authenticated restore staging (CI verified)
 - [x] Backup metadata schema, transactional request queue, inventory API, project RBAC, and audit events (CI verified)
+- [x] Backup targets bound to a ready managed database with composite tenant/connection/database foreign-key enforcement (CI verified)
 - [ ] Isolated backup worker and MongoDB Database Tools adapter
 - [ ] Restore jobs, integrity verification, and retention-safe deletion
 - [ ] Object storage adapter and multi-node durability
