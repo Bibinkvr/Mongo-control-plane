@@ -38,7 +38,7 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] Context-bound AES-GCM AAD for new secrets, with versioned compatibility for existing records
 - [x] Provisioning-worker TLS enforcement and DNS-pinned egress validation (loopback, link-local, metadata, multicast, reserved ranges blocked; private networks require operator opt-in)
 - [ ] User-triggered connection testing and external egress-firewall deployment verification
-- [ ] Per-project connection pooling
+- [x] Bounded process-local MongoDB client pools with credential-change retirement and graceful shutdown (CI verified)
 - [ ] Production KMS/secret-manager adapter and operational key-rotation runbook
 
 ## Phase 3 — Shared MongoDB provisioning
@@ -67,8 +67,11 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 
 ## Phase 5 — Backups and observability
 - [ ] Backup scheduling and retention
-- [ ] Encrypted backup storage
-- [ ] Restore and integrity verification
+- [x] Encrypted streaming file-storage primitive with per-backup DEKs, context-bound AES-GCM, atomic publication, and authenticated restore staging (unit tests added; CI verification pending)
+- [ ] Backup metadata schema and API authorization
+- [ ] Isolated backup worker and MongoDB Database Tools adapter
+- [ ] Restore jobs, integrity verification, and retention-safe deletion
+- [ ] Object storage adapter and multi-node durability
 - [ ] Health, metrics, logs, and alert hooks
 
 ## Phase 6 — Dedicated deployments and Atlas
