@@ -35,8 +35,8 @@ integration("shared MongoDB provisioning integration", () => {
       expect(created.action).toBe("created");
 
       const userInfo = await adminDb.command({ usersInfo: identity.username });
-      expect(userInfo.users).toHaveLength(1);
-      expect(userInfo.users[0]).toMatchObject({
+      expect(userInfo["users"]).toHaveLength(1);
+      expect(userInfo["users"][0]).toMatchObject({
         user: identity.username,
         customData: { managedBy: "mongo-control-plane", resourceId },
         roles: [{ role: "readWrite", db: identity.databaseName }],
@@ -64,7 +64,7 @@ integration("shared MongoDB provisioning integration", () => {
       const removed = await removeSharedDatabaseUser(adminClient, identity);
       expect(removed.removed).toBe(true);
       const afterRemoval = await adminDb.command({ usersInfo: identity.username });
-      expect(afterRemoval.users).toHaveLength(0);
+      expect(afterRemoval["users"]).toHaveLength(0);
 
       const repeatedRemoval = await removeSharedDatabaseUser(adminClient, identity);
       expect(repeatedRemoval.removed).toBe(false);
