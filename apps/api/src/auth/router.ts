@@ -94,14 +94,15 @@ export function createAuthRouter(pool: Pool, secureCookies: boolean): Router {
     const token = createSessionToken();
     const tokenHash = hashSessionToken(token);
     await pool.query(
-      `INSERT INTO sessions (user_id, token_hash, expires_at)
-       VALUES ($1, $2, now() + interval '7 days')`,
+      `WITH created_session AS (
+         INSERT INTO sessions (user_id, token_hash, expires_at)
+         VALUES ($1, $2, now() + interval '7 days')
+         RETURNING user_id
+       )
+       INSERT INTO audit_events (actor_user_id, action, target_type, target_id, metadata)
+       SELECT user_id, 'auth.login', 'session', NULL, jsonb_build_object('method', 'password')
+       FROM created_session`,
       [user.id, tokenHash],
-    );
-    await pool.query(
-      `INSERT INTO audit_events (actor_user_id, action, target_type, target_id, metadata)
-       VALUES ($1, 'auth.login', 'session', NULL, jsonb_build_object('method', 'password'))`,
-      [user.id],
     );
 
     setSessionCookie(response, token, secureCookies);
@@ -114,19 +115,17 @@ export function createAuthRouter(pool: Pool, secureCookies: boolean): Router {
     const token = readSessionCookie(request.headers.cookie, COOKIE_NAME);
     if (token) {
       const tokenHash = hashSessionToken(token);
-      const revoked = await pool.query<{ user_id: string }>(
-        `UPDATE sessions SET revoked_at = now()
-          WHERE token_hash = $1 AND revoked_at IS NULL
-          RETURNING user_id`,
+      await pool.query(
+        `WITH revoked_session AS (
+           UPDATE sessions SET revoked_at = now()
+            WHERE token_hash = $1 AND revoked_at IS NULL
+            RETURNING user_id
+         )
+         INSERT INTO audit_events (actor_user_id, action, target_type, metadata)
+         SELECT user_id, 'auth.logout', 'session', jsonb_build_object('method', 'password')
+         FROM revoked_session`,
         [tokenHash],
       );
-      if (revoked.rows[0]) {
-        await pool.query(
-          `INSERT INTO audit_events (actor_user_id, action, target_type, metadata)
-           VALUES ($1, 'auth.logout', 'session', jsonb_build_object('method', 'password'))`,
-          [revoked.rows[0].user_id],
-        );
-      }
     }
     clearSessionCookie(response, secureCookies);
     response.status(204).end();
