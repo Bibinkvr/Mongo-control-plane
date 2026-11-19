@@ -11,6 +11,7 @@ type ClientEntry = {
   closing: boolean;
   retiring: boolean;
   drainWaiters: Array<() => void>;
+  closePromise?: Promise<void>;
 };
 
 export type MongoClientManagerOptions = {
@@ -30,6 +31,7 @@ export type MongoClientManagerOptions = {
  */
 export class MongoClientManager {
   private readonly entries = new Map<string, ClientEntry>();
+  private readonly closingPromises = new Set<Promise<void>>();
   private readonly maxClients: number;
   private readonly idleTimeoutMs: number;
   private readonly factory: (uri: string, options: MongoClientOptions) => MongoClient;
@@ -97,9 +99,8 @@ export class MongoClientManager {
           }
         }
         void created.connected.catch(async () => {
-          if (this.entries.get(key) === created) this.entries.delete(key);
-          created.closing = true;
-          await client.close().catch(() => undefined);
+          created.retiring = true;
+          await this.closeEntry(created);
         });
       }
     }
@@ -135,6 +136,7 @@ export class MongoClientManager {
       if (entry.leases > 0) await new Promise<void>((resolve) => entry.drainWaiters.push(resolve));
       await this.closeEntry(entry);
     }));
+    await Promise.all([...this.closingPromises]);
   }
 
   get size(): number {
@@ -152,12 +154,19 @@ export class MongoClientManager {
     }
   }
 
-  private async closeEntry(entry: ClientEntry): Promise<void> {
-    if (entry.closing || entry.leases > 0) return;
+  private closeEntry(entry: ClientEntry): Promise<void> {
+    if (entry.closePromise) return entry.closePromise;
+    if (entry.leases > 0) return Promise.resolve();
     entry.closing = true;
     if (this.entries.get(entry.key) === entry) this.entries.delete(entry.key);
-    await entry.connected.catch(() => undefined);
-    await entry.client.close().catch(() => undefined);
+    const closing = (async () => {
+      await entry.connected.catch(() => undefined);
+      await entry.client.close().catch(() => undefined);
+    })();
+    entry.closePromise = closing;
+    this.closingPromises.add(closing);
+    void closing.finally(() => this.closingPromises.delete(closing));
+    return closing;
   }
 }
 
