@@ -26,19 +26,19 @@ describe("connection secret envelope encryption", () => {
   });
 
   it("detects ciphertext and authentication-tag tampering", () => {
-    const encrypted = encryptConnectionUri(uri, oldRing);
+    const encrypted = encryptConnectionUri(uri, oldRing, context);
     const tampered = { ...encrypted, ciphertext: Buffer.from(encrypted.ciphertext) };
     tampered.ciphertext[0] = (tampered.ciphertext[0] ?? 0) ^ 1;
     expect(() => decryptConnectionUri(tampered, oldRing, context)).toThrow();
   });
 
   it("rejects a missing decryption key", () => {
-    const encrypted = encryptConnectionUri(uri, oldRing);
+    const encrypted = encryptConnectionUri(uri, oldRing, context);
     expect(() => decryptConnectionUri(encrypted, { currentVersion: 2, keys: new Map([[2, newKey]]) }, context)).toThrow(/unavailable/);
   });
 
   it("rotates the wrapped data key without changing URI ciphertext", () => {
-    const encrypted = encryptConnectionUri(uri, oldRing);
+    const encrypted = encryptConnectionUri(uri, oldRing, context);
     const rotated = rewrapConnectionSecret(encrypted, rotatedRing, context);
     expect(rotated.keyVersion).toBe(2);
     expect(rotated.ciphertext).toEqual(encrypted.ciphertext);
