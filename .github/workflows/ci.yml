@@ -31,7 +31,6 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
-    services:
       mongodb:
         image: mongo:8.0
         env:
