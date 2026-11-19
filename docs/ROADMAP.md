@@ -29,11 +29,14 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] Auth route and session-helper test coverage (CI verified)
 
 ## Phase 2 — Connection and secret management
-- [ ] Connection target registry
-- [ ] Envelope encryption and key rotation
-- [ ] Secret reveal and rotation workflow
-- [ ] Safe connection testing and SSRF protections
+- [x] Encrypted connection target registry API (metadata-only responses; project permission checks; audit events)
+- [x] AES-256-GCM envelope encryption with per-secret DEKs and versioned KEKs
+- [x] DEK re-wrapping key rotation without decrypting MongoDB URI plaintext
+- [ ] PostgreSQL integration and cross-project authorization tests for connection routes
+- [ ] Secret use/reveal workflow for trusted server-side services (never expose credentials to browser)
+- [ ] Safe connection testing and SSRF/DNS-rebinding/egress protections
 - [ ] Per-project connection pooling
+- [ ] Production KMS/secret-manager adapter and operational key-rotation runbook
 
 ## Phase 3 — Shared MongoDB provisioning
 - [ ] Provider interface and capability model
