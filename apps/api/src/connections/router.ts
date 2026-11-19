@@ -13,7 +13,7 @@ const createSchema = z.object({
 }).strict();
 
 type Caller = { id: string; is_platform_admin: boolean };
-type DbRow = EncryptedConnectionSecret & { encryption_context_version: 1 | 2; id: string; name: string; kind: string; host_label: string; status: string; created_at: Date; updated_at: Date };
+type DbRow = EncryptedConnectionSecret & { encryptionContextVersion: 1 | 2; id: string; name: string; kind: string; host_label: string; status: string; created_at: Date; updated_at: Date };
 
 function caller(response: Response): Caller { return response.locals["connectionCaller"] as Caller; }
 function safeMetadata(row: DbRow) {
