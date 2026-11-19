@@ -68,6 +68,7 @@ export class MongoClientManager {
     let entry = this.entries.get(key);
     if (!entry) {
       await this.makeRoom();
+      if (this.closed) throw new Error("MongoDB client manager is shutting down.");
       entry = this.entries.get(key);
       if (!entry) {
         if (this.entries.size >= this.maxClients) {
