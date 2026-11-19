@@ -1,4 +1,5 @@
-import type { Db, Document } from "mongodb";
+import { randomBytes } from "node:crypto";
+import type { Db, Document, MongoClient } from "mongodb";
 
 export type SharedDatabaseIdentity = {
   databaseName: string;
@@ -37,6 +38,11 @@ function assertIdentity(identity: SharedDatabaseIdentity): void {
   if (identity.password.length < 32 || identity.password.length > 256) {
     throw new Error("Managed MongoDB password must contain between 32 and 256 characters.");
   }
+}
+
+/** Generates a high-entropy password suitable for a database-scoped application user. */
+export function generateSharedDatabasePassword(): string {
+  return randomBytes(32).toString("base64url");
 }
 
 /** Stable, collision-resistant names derived only from server-generated UUIDs. */
