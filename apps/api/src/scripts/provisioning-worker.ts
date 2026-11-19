@@ -14,7 +14,7 @@ process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
 try {
-  await runProvisioningWorker(pool, keyring, { tls: true }, abort.signal);
+  await runProvisioningWorker(pool, keyring, { tls: true, allowPrivateNetworks: env.MONGODB_ALLOW_PRIVATE_NETWORKS }, abort.signal);
 } finally {
   await pool.end();
 }
