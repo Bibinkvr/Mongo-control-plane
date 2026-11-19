@@ -119,6 +119,9 @@ integration("database provisioning worker integration", () => {
     await expect(revealDatabaseConnectionUri(pool, keyring, {
       caller: { userId: developer.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
     })).rejects.toThrow(/permission to use this database/i);
+    await expect(revealDatabaseConnectionUri(pool, keyring, {
+      caller: { userId: reader.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
+    })).rejects.toThrow(/permission to use this database/i);
 
     const indexName = await withManagedDatabase(pool, keyring, workspacePolicy, {
       caller: { userId: user.rows[0]!.id, isPlatformAdmin: false }, projectId, databaseId: resource.id,
