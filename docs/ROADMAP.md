@@ -36,19 +36,22 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] PostgreSQL integration coverage for encrypted storage, key rotation, CRUD, credential authorization, and tenant permissions (CI verified)
 - [x] Internal server-side credential loader with project membership checks, `connection:use` permission, disabled-target rejection, and audit events (CI verification pending)
 - [x] Context-bound AES-GCM AAD for new secrets, with versioned compatibility for existing records
-- [ ] Safe connection testing and SSRF/DNS-rebinding/egress protections
+- [x] Provisioning-worker TLS enforcement and DNS-pinned egress validation (loopback, link-local, metadata, multicast, reserved ranges blocked; private networks require operator opt-in)
+- [ ] User-triggered connection testing and external egress-firewall deployment verification
 - [ ] Per-project connection pooling
 - [ ] Production KMS/secret-manager adapter and operational key-rotation runbook
 
 ## Phase 3 — Shared MongoDB provisioning
-- [x] Shared MongoDB user provisioning primitive with ownership markers and safe retry reconciliation (unit-tested; integration pending)
+- [x] Shared MongoDB user provisioning with project/resource ownership markers and safe retry reconciliation
 - [x] Database-scoped `readWrite` role and SCRAM-SHA-256 enforcement
-- [x] Ownership-checked user removal primitive
+- [x] Ownership-checked user removal and database deletion
+- [x] PostgreSQL-backed provisioning outbox with `SKIP LOCKED`, expiring leases, bounded retries, and idempotent worker operations
+- [x] Encrypted application credentials persisted before external provisioning; credentials wiped after successful deletion
+- [x] Database create/list, explicit connection-URI reveal, and credential key-rotation endpoints
+- [x] Confirmed asynchronous deletion with tombstones and safe connection cleanup
+- [x] Real MongoDB 8 integration coverage for scoped access, retries, key rotation, deletion, and credential erasure (CI verification pending)
 - [ ] Provider interface and capability model
-- [ ] Persisted provisioning jobs and database namespace lifecycle
-- [ ] Encrypted credential persistence before external provisioning
-- [ ] Worker retries, cleanup compensation, and concurrency controls
-- [ ] Real MongoDB integration tests
+- [ ] Per-project quotas, provisioning rate limits, and operational alerting
 
 ## Phase 4 — MongoDB workspace
 - [ ] Database and collection explorer
