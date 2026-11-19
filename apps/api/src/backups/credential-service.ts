@@ -84,8 +84,7 @@ export async function loadBackupDatabaseCredential(
       "  JOIN connection_targets c ON c.id=d.connection_id AND c.project_id=d.project_id",
       " WHERE j.id=$1 AND j.backup_id=$2 AND j.project_id=$3",
       "   AND j.operation='backup' AND j.status='running' AND j.lock_token=$4",
-      "   AND b.status='running' AND d.status='ready' AND d.backup_username IS NOT NULL
-          AND d.backup_user_ready_at IS NOT NULL AND c.status='configured'",
+      "   AND b.status='running' AND d.status='ready' AND d.backup_username IS NOT NULL AND d.backup_user_ready_at IS NOT NULL AND c.status='configured'",
       " FOR SHARE OF j,b,d,c",
     ].join("\n");
     const result = await client.query<BackupCredentialRow>(
