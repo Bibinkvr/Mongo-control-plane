@@ -2,10 +2,12 @@ import { createServer } from "node:http";
 import { createApp } from "./app.js";
 import { parseEnv } from "./config/env.js";
 import { createDatabasePool } from "./db/pool.js";
+import { parseEncryptionKeyring } from "./connections/crypto.js";
 
 const env = parseEnv(process.env);
 const pool = env.DATABASE_URL ? createDatabasePool(env.DATABASE_URL) : undefined;
-const app = createApp({ pool, secureCookies: env.NODE_ENV === "production" });
+const encryptionKeyring = parseEncryptionKeyring(env.CONNECTION_ENCRYPTION_KEYS, env.CONNECTION_ENCRYPTION_CURRENT_VERSION);
+const app = createApp({ pool, secureCookies: env.NODE_ENV === "production", encryptionKeyring });
 const server = createServer(app);
 
 server.listen(env.PORT, env.HOST, () => {
