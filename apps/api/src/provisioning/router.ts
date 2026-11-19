@@ -3,15 +3,15 @@ import { z } from "zod";
 import type { Pool } from "pg";
 import { resolveSession } from "../auth/router.js";
 import type { EncryptionKeyring } from "../connections/crypto.js";
-import { createDatabaseProvisioningRequest, listProjectDatabases, ProvisioningRequestError } from "./repository.js";
+import { createDatabaseProvisioningRequest, listProjectDatabases, requestDatabaseDeletion, ProvisioningRequestError } from "./repository.js";
 import { DatabaseCredentialError, revealDatabaseConnectionUri, rotateDatabaseCredentialKey } from "./credentials.js";
 
 function sendProvisioningError(error: unknown, response: Response, next: NextFunction): void {
   if (error instanceof ProvisioningRequestError || error instanceof DatabaseCredentialError) {
     const status = error.code === "PROJECT_NOT_FOUND" || error.code === "CONNECTION_NOT_FOUND" || error.code === "DATABASE_NOT_FOUND" ? 404
       : error.code === "FORBIDDEN" ? 403
-      : error.code === "RESOURCE_NAME_TAKEN" ? 409
-      : error.code === "DATABASE_NOT_READY" || error.code === "CONNECTION_DISABLED" ? 409 : 400;
+      : error.code === "RESOURCE_NAME_TAKEN" || error.code === "DATABASE_OPERATION_ACTIVE" || error.code === "DATABASE_NOT_READY" ? 409
+      : error.code === "CONNECTION_DISABLED" ? 409 : 400;
     response.status(status).json({ error: { code: error.code, message: error.message } });
     return;
   }
@@ -53,6 +53,30 @@ export function createDatabasesRouter(pool: Pool, keyring: EncryptionKeyring): R
     } catch (error) { sendProvisioningError(error, response, next); }
   });
 
+
+
+  router.delete("/:projectId/databases/:databaseId", async (request, response, next) => {
+    const projectId = z.string().uuid().safeParse(request.params["projectId"]);
+    const databaseId = z.string().uuid().safeParse(request.params["databaseId"]);
+    const body = z.object({ confirmDatabaseName: z.string().min(1).max(100) }).strict().safeParse(request.body);
+    if (!projectId.success || !databaseId.success) {
+      response.status(400).json({ error: { code: "INVALID_ID", message: "A project or database ID is invalid." } });
+      return;
+    }
+    if (!body.success) {
+      response.status(400).json({ error: { code: "CONFIRMATION_REQUIRED", message: "Confirm the exact database name before deletion." } });
+      return;
+    }
+    try {
+      const result = await requestDatabaseDeletion(pool, {
+        caller: response.locals["databaseCaller"] as { userId: string; isPlatformAdmin: boolean },
+        projectId: projectId.data,
+        databaseId: databaseId.data,
+        confirmDatabaseName: body.data.confirmDatabaseName,
+      });
+      response.status(202).json({ database: result });
+    } catch (error) { sendProvisioningError(error, response, next); }
+  });
 
   router.post("/:projectId/databases/:databaseId/rotate-key", async (request, response, next) => {
     const projectId = z.string().uuid().safeParse(request.params["projectId"]);
