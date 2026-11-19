@@ -35,6 +35,7 @@ export function buildDatabaseConnectionUri(
   username: string,
   password: string,
   databaseName: string,
+  tls = true,
 ): string {
   parseMongoConnectionUri(adminUri);
   if (!/^mcp_[a-f0-9]{32}$/.test(username)) throw new Error("Application MongoDB username is invalid.");
@@ -50,7 +51,7 @@ export function buildDatabaseConnectionUri(
   }
   params.set("authSource", databaseName);
   params.set("authMechanism", "SCRAM-SHA-256");
-  params.set("tls", "true");
+  params.set("tls", tls ? "true" : "false");
   return `${scheme}${encodeURIComponent(username)}:${encodeURIComponent(password)}@${hosts}/${encodeURIComponent(databaseName)}?${params.toString()}`;
 }
 
