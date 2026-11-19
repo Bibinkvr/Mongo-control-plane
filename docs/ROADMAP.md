@@ -34,7 +34,7 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] DEK re-wrapping key rotation without decrypting MongoDB URI plaintext
 - [x] Rename and enable/disable connection targets with audit events
 - [x] PostgreSQL integration coverage for encrypted storage, key rotation, CRUD, credential authorization, and tenant permissions (CI verified)
-- [x] Internal server-side credential loader with project membership checks, `connection:use` permission, disabled-target rejection, and audit events (CI verification pending)
+- [x] Internal server-side credential loader with project membership checks, `connection:use` permission, disabled-target rejection, and audit events (CI verified)
 - [x] Context-bound AES-GCM AAD for new secrets, with versioned compatibility for existing records
 - [x] Provisioning-worker TLS enforcement and DNS-pinned egress validation (loopback, link-local, metadata, multicast, reserved ranges blocked; private networks require operator opt-in)
 - [ ] User-triggered connection testing and external egress-firewall deployment verification
@@ -49,17 +49,21 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] Encrypted application credentials persisted before external provisioning; credentials wiped after successful deletion
 - [x] Database create/list, explicit connection-URI reveal, and credential key-rotation endpoints
 - [x] Confirmed asynchronous deletion with tombstones and safe connection cleanup
-- [x] Real MongoDB 8 integration coverage for scoped access, retries, key rotation, deletion, and credential erasure (CI verification pending)
+- [x] Real MongoDB 8 integration coverage for scoped access, retries, key rotation, deletion, and credential erasure (CI verified)
 - [ ] Provider interface and capability model
 - [ ] Per-project quotas, provisioning rate limits, and operational alerting
 
 ## Phase 4 — MongoDB workspace
-- [ ] Database and collection explorer
-- [ ] BSON-aware document CRUD
-- [ ] Query filters, sorting, projection, pagination
-- [ ] Aggregation pipeline editor
-- [ ] Index and schema management
-- [ ] Import/export with limits and validation
+- [x] Server-side collection list/create/confirmed-drop API
+- [x] Document insert/update/delete API with ObjectId addressing, recursive field validation, 1 MB document cap, and bounded page reads
+- [x] Index list/create/drop API with protected `_id_` index and field-name validation
+- [x] Project RBAC enforced inside the server-side MongoDB operation boundary; only project admins can reveal the application URI
+- [x] TLS, DNS-pinned egress, PostgreSQL row locks, request timeouts, and audit events for workspace operations
+- [ ] Web workspace UI and BSON-aware editor
+- [ ] Safe query builder with allowlisted filters, sorting, projection, and cursor pagination
+- [ ] Aggregation pipeline editor with stage/operator allowlists and resource limits
+- [ ] Schema sampling/inspection
+- [ ] Import/export with limits, validation, and streaming
 
 ## Phase 5 — Backups and observability
 - [ ] Backup scheduling and retention
