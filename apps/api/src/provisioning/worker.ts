@@ -3,13 +3,16 @@ import { MongoClient } from "mongodb";
 import type { Pool } from "pg";
 import { decryptSecretString, type EncryptedConnectionSecret, type EncryptionKeyring } from "../connections/crypto.js";
 import { loadConnectionCredential } from "../connections/credential-service.js";
-import { createSharedDatabaseIdentity, provisionSharedDatabaseUser, removeSharedDatabaseUser } from "./shared-mongodb.js";
+import { createSharedDatabaseBackupIdentity, createSharedDatabaseIdentity, provisionSharedDatabaseBackupUser, provisionSharedDatabaseUser, removeSharedDatabaseBackupUser, removeSharedDatabaseUser } from "./shared-mongodb.js";
 import { createSafeMongoLookup } from "./network-guard.js";
 
 type ClaimedJob = { id: string; project_id: string; resource_id: string; operation: "provision" | "delete"; lock_token: string; attempt_count: number; max_attempts: number };
 type ResourceRow = EncryptedConnectionSecret & {
   id: string; project_id: string; connection_id: string; database_name: string; username: string;
   created_by: string | null; created_by_is_platform_admin: boolean | null; encryptionContextVersion: 1 | 2;
+  backup_username: string | null; backup_ciphertext: Buffer | null; backup_nonce: Buffer | null;
+  backup_auth_tag: Buffer | null; backup_wrapped_dek: Buffer | null; backup_wrap_nonce: Buffer | null;
+  backup_wrap_auth_tag: Buffer | null; backup_key_version: number | null;
 };
 export type ProvisioningWorkerOptions = {
   pollIntervalMs?: number;
@@ -137,7 +140,11 @@ async function loadResource(pool: Pool, job: ClaimedJob): Promise<ResourceRow> {
             r.credential_ciphertext AS ciphertext, r.credential_nonce AS nonce,
             r.credential_auth_tag AS "authTag", r.wrapped_dek AS "wrappedDek",
             r.wrap_nonce AS "wrapNonce", r.wrap_auth_tag AS "wrapAuthTag",
-            r.key_version AS "keyVersion", r.encryption_context_version AS "encryptionContextVersion"
+            r.key_version AS "keyVersion", r.encryption_context_version AS "encryptionContextVersion",
+            r.backup_username, r.backup_credential_ciphertext AS backup_ciphertext,
+            r.backup_credential_nonce AS backup_nonce, r.backup_credential_auth_tag AS backup_auth_tag,
+            r.backup_wrapped_dek AS backup_wrapped_dek, r.backup_wrap_nonce AS backup_wrap_nonce,
+            r.backup_wrap_auth_tag AS backup_wrap_auth_tag, r.backup_key_version
        FROM database_resources r
        LEFT JOIN users u ON u.id = r.created_by
       WHERE r.id=$1 AND r.project_id=$2 AND r.status=$3`,
@@ -184,6 +191,25 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
     if (identity.databaseName !== resource.database_name || identity.username !== resource.username) {
       throw new Error("PROVISIONING_IDENTITY_MISMATCH");
     }
+    if (!resource.backup_username || !resource.backup_ciphertext || !resource.backup_nonce
+      || !resource.backup_auth_tag || !resource.backup_wrapped_dek || !resource.backup_wrap_nonce
+      || !resource.backup_wrap_auth_tag || !resource.backup_key_version) {
+      throw new Error("BACKUP_CREDENTIAL_MISSING");
+    }
+    const backupPassword = decryptSecretString({
+      ciphertext: resource.backup_ciphertext,
+      nonce: resource.backup_nonce,
+      authTag: resource.backup_auth_tag,
+      wrappedDek: resource.backup_wrapped_dek,
+      wrapNonce: resource.backup_wrap_nonce,
+      wrapAuthTag: resource.backup_wrap_auth_tag,
+      keyVersion: resource.backup_key_version,
+      encryptionContextVersion: 2,
+    }, keyring, { projectId: resource.project_id, connectionId: resource.id });
+    const backupIdentity = createSharedDatabaseBackupIdentity(resource.project_id, resource.id, backupPassword);
+    if (backupIdentity.databaseName !== resource.database_name || backupIdentity.username !== resource.backup_username) {
+      throw new Error("BACKUP_IDENTITY_MISMATCH");
+    }
     adminClient = new MongoClient(adminUri, {
       tls: options.tls ?? true,
       lookup: createSafeMongoLookup({
@@ -199,8 +225,10 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
     await adminClient.connect();
     if (job.operation === "provision") {
       await provisionSharedDatabaseUser(adminClient, identity);
+      await provisionSharedDatabaseBackupUser(adminClient, backupIdentity);
     } else {
       await removeSharedDatabaseUser(adminClient, identity);
+      await removeSharedDatabaseBackupUser(adminClient, backupIdentity);
       await adminClient.db(resource.database_name).dropDatabase();
     }
     if (leaseLost) throw new Error("PROVISIONING_LEASE_LOST");
