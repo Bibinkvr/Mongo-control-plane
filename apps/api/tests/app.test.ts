@@ -26,12 +26,25 @@ describe("API foundation", () => {
     expect(response.body.error.code).toBe("NOT_FOUND");
   });
 
-  it("rejects malformed JSON", async () => {
+  it("returns a safe 400 response for malformed JSON", async () => {
     const response = await request(app)
       .post("/test")
       .set("content-type", "application/json")
       .send("{invalid");
 
     expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("INVALID_JSON");
+    expect(response.body.error.message).not.toContain("Unexpected");
+  });
+
+  it("rejects request bodies larger than the configured limit", async () => {
+    const oversized = JSON.stringify({ value: "x".repeat(1_100_000) });
+    const response = await request(app)
+      .post("/test")
+      .set("content-type", "application/json")
+      .send(oversized);
+
+    expect(response.status).toBe(413);
+    expect(response.body.error.code).toBe("PAYLOAD_TOO_LARGE");
   });
 });
