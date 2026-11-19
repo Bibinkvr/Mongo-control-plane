@@ -95,3 +95,34 @@ Authenticated project endpoints:
 Project access is derived from the server-side session and membership tables. A project ID supplied by a client is never treated as proof of access. Project creation, creator membership, and the audit event are committed as one PostgreSQL statement.
 
 The current route tests use a controlled database stub. Run the PostgreSQL integration suite once the Compose/test database stack is available; the stub tests do not prove database isolation under real PostgreSQL execution.
+
+## Local dependency stack
+
+The repository includes a development-only Compose stack for PostgreSQL, MongoDB, and Redis. All published ports bind to loopback; do not expose this Compose file directly to the public internet.
+
+1. Copy `.env.example` to `.env` and replace all three passwords with unique random values.
+2. Start the services:
+
+   ```bash
+   docker compose up -d
+   docker compose ps
+   ```
+
+3. Export the control-plane connection string into your shell (URL-encode any special characters in the database password), then run migrations:
+
+   ```bash
+   export DATABASE_URL='postgresql://mcp_dev:YOUR_PASSWORD@127.0.0.1:54329/mcp_control_plane'
+   npm install
+   npm run migrate --workspace @mongo-control-plane/api
+   ```
+
+4. Bootstrap the first administrator using the one-time command above.
+5. Start the API:
+
+   ```bash
+   npm run dev:api
+   ```
+
+The migration runner applies numbered SQL files in order, records SHA-256 checksums, serializes concurrent runners with a PostgreSQL advisory transaction lock, and refuses to run an already-applied migration whose contents have changed. Create a new migration instead of editing an applied one.
+
+The Compose MongoDB and Redis services are included for later feature development; the current API does not yet provision MongoDB databases or use Redis. Do not use the example credentials or this development stack as production deployment configuration.
