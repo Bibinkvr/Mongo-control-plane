@@ -17,7 +17,8 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 ## Phase 1 — Identity and project control
 - [x] Password login, logout, hashed opaque sessions, and one-time admin bootstrap (implementation; verification pending)
 - [ ] Production rate limiting, CSRF/origin policy, session cleanup, and security review
-- [x] Initial PostgreSQL schema for users, sessions, projects, memberships, and audit events\n- [ ] Users, roles, permissions
+- [x] Initial PostgreSQL schema for users, sessions, projects, memberships, and audit events
+- [ ] Users, roles, permissions
 - [x] Authenticated project list, creation, and detail endpoints with membership-scoped SQL (real-DB verification pending)
 - [ ] Project membership administration and environments
 - [ ] Server-side tenant isolation
