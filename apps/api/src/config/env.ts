@@ -10,6 +10,11 @@ const envSchema = z.object({
   CONNECTION_ENCRYPTION_CURRENT_VERSION: z.string().optional(),
   MONGODB_ALLOW_PRIVATE_NETWORKS: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   MONGODB_ALLOW_LOOPBACK: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  BACKUP_WORKER_EGRESS_ISOLATED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  MONGODUMP_PATH: z.string().trim().min(1).optional(),
+  BACKUP_STORAGE_ROOT: z.string().trim().min(1).optional(),
+  BACKUP_MAX_BYTES: z.coerce.number().int().min(1).max(20 * 1024 * 1024 * 1024).default(20 * 1024 * 1024 * 1024),
+  BACKUP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(86_400_000).default(6 * 60 * 60 * 1000),
 }).superRefine((value, context) => {
   if (value.NODE_ENV === "production" && !value.DATABASE_URL) {
     context.addIssue({ code: "custom", path: ["DATABASE_URL"], message: "is required in production" });
