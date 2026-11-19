@@ -3,10 +3,10 @@ import { MongoClient } from "mongodb";
 import type { Pool } from "pg";
 import { decryptSecretString, type EncryptedConnectionSecret, type EncryptionKeyring } from "../connections/crypto.js";
 import { loadConnectionCredential } from "../connections/credential-service.js";
-import { createSharedDatabaseIdentity, provisionSharedDatabaseUser } from "./shared-mongodb.js";
+import { createSharedDatabaseIdentity, provisionSharedDatabaseUser, removeSharedDatabaseUser } from "./shared-mongodb.js";
 import { createSafeMongoLookup } from "./network-guard.js";
 
-type ClaimedJob = { id: string; project_id: string; resource_id: string; lock_token: string; attempt_count: number; max_attempts: number };
+type ClaimedJob = { id: string; project_id: string; resource_id: string; operation: "provision" | "delete"; lock_token: string; attempt_count: number; max_attempts: number };
 type ResourceRow = EncryptedConnectionSecret & {
   id: string; project_id: string; connection_id: string; database_name: string; username: string;
   created_by: string | null; created_by_is_platform_admin: boolean | null; encryptionContextVersion: 1 | 2;
@@ -26,7 +26,7 @@ async function claimJob(pool: Pool, leaseSeconds: number): Promise<ClaimedJob | 
     const result = await client.query<ClaimedJob>(
       `WITH candidate AS (
          SELECT id FROM provisioning_jobs
-          WHERE operation = 'provision'
+          WHERE operation IN ('provision', 'delete')
             AND ((status = 'queued' AND available_at <= now())
               OR (status = 'running' AND lease_expires_at < now()))
           ORDER BY available_at, created_at
@@ -39,7 +39,7 @@ async function claimJob(pool: Pool, leaseSeconds: number): Promise<ClaimedJob | 
               lock_token = $2, updated_at = now()
          FROM candidate c
         WHERE j.id = c.id
-       RETURNING j.id, j.project_id, j.resource_id, j.lock_token, j.attempt_count, j.max_attempts`,
+       RETURNING j.id, j.project_id, j.resource_id, j.operation, j.lock_token, j.attempt_count, j.max_attempts`,
       [leaseSeconds, randomUUID()],
     );
     await client.query("COMMIT");
@@ -62,14 +62,27 @@ async function completeJob(pool: Pool, job: ClaimedJob, actorId: string): Promis
       [job.id, job.lock_token],
     );
     if (updated.rowCount !== 1) throw new Error("PROVISIONING_LEASE_LOST");
-    await client.query(
-      "UPDATE database_resources SET status='ready', last_error_code=NULL, updated_at=now() WHERE id=$1 AND project_id=$2",
-      [job.resource_id, job.project_id],
-    );
+    if (job.operation === "delete") {
+      await client.query(
+        `UPDATE database_resources
+            SET status='deleted', last_error_code=NULL,
+                credential_ciphertext=$3, credential_nonce=$4, credential_auth_tag=$5,
+                wrapped_dek=$6, wrap_nonce=$7, wrap_auth_tag=$8, updated_at=now()
+          WHERE id=$1 AND project_id=$2`,
+        [job.resource_id, job.project_id, Buffer.alloc(0), Buffer.alloc(12), Buffer.alloc(16),
+         Buffer.alloc(0), Buffer.alloc(12), Buffer.alloc(16)],
+      );
+    } else {
+      await client.query(
+        "UPDATE database_resources SET status='ready', last_error_code=NULL, updated_at=now() WHERE id=$1 AND project_id=$2",
+        [job.resource_id, job.project_id],
+      );
+    }
+    const action = job.operation === "delete" ? "database.delete.succeeded" : "database.provision.succeeded";
     await client.query(
       `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
-       VALUES ($1,$2,'database.provision.succeeded','database',$3,'{}'::jsonb)`,
-      [actorId, job.project_id, job.resource_id],
+       VALUES ($1,$2,$4,'database',$3,'{}'::jsonb)`,
+      [actorId, job.project_id, job.resource_id, action],
     );
     await client.query("COMMIT");
   } catch (error) {
@@ -95,16 +108,16 @@ async function failJob(pool: Pool, job: ClaimedJob, actorId: string | null): Pro
     if (updated.rowCount === 1) {
       await client.query(
         `UPDATE database_resources
-            SET status=CASE WHEN $2 THEN 'failed' ELSE 'provisioning' END,
+            SET status=CASE WHEN $2 THEN 'failed' WHEN $3='delete' THEN 'deleting' ELSE 'provisioning' END,
                 last_error_code='PROVISIONING_FAILED', updated_at=now()
           WHERE id=$1 AND status <> 'deleted'`,
-        [job.resource_id, terminal],
+        [job.resource_id, terminal, job.operation],
       );
       if (actorId) {
         await client.query(
           `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
-           VALUES ($1,$2,'database.provision.failed','database',$3,jsonb_build_object('terminal',$4::boolean,'errorCode','PROVISIONING_FAILED'))`,
-          [actorId, job.project_id, job.resource_id, terminal],
+           VALUES ($1,$2,$5,'database',$3,jsonb_build_object('terminal',$4::boolean,'errorCode','PROVISIONING_FAILED'))`,
+          [actorId, job.project_id, job.resource_id, terminal, job.operation === "delete" ? "database.delete.failed" : "database.provision.failed"],
         );
       }
     }
@@ -164,7 +177,12 @@ async function processJob(pool: Pool, keyring: EncryptionKeyring, job: ClaimedJo
       minPoolSize: 0,
     });
     await adminClient.connect();
-    await provisionSharedDatabaseUser(adminClient, identity);
+    if (job.operation === "provision") {
+      await provisionSharedDatabaseUser(adminClient, identity);
+    } else {
+      await removeSharedDatabaseUser(adminClient, identity);
+      await adminClient.db(resource.database_name).dropDatabase();
+    }
     await completeJob(pool, job, createdBy);
   } catch {
     await failJob(pool, job, actorId);
