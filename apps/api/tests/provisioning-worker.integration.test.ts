@@ -114,11 +114,12 @@ integration("database provisioning worker integration", () => {
       const collection = appClient.db(resource.databaseName).collection("access_probe");
       await collection.insertOne({ projectId, resourceId: resource.id });
       expect(await collection.countDocuments({ projectId })).toBe(1);
-      const visibleDatabases = await appClient.db("admin").command<{ databases: Array<{ name: string }> }>({
+      const visibleDatabases = await appClient.db("admin").command({
         listDatabases: 1, authorizedDatabases: true,
       });
-      expect(visibleDatabases.databases.map((database) => database.name)).toContain(resource.databaseName);
-      expect(visibleDatabases.databases.map((database) => database.name)).not.toContain("admin");
+      const visibleNames = (visibleDatabases["databases"] as Array<{ name: string }>).map((database) => database.name);
+      expect(visibleNames).toContain(resource.databaseName);
+      expect(visibleNames).not.toContain("admin");
       await expect(appClient.db("another_project").collection("blocked").insertOne({ denied: true })).rejects.toThrow();
       await removeSharedDatabaseUser(adminClient, {
         projectId, resourceId: resource.id, databaseName: resource.databaseName,
