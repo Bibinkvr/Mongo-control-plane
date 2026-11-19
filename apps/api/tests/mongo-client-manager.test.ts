@@ -42,6 +42,46 @@ describe("MongoClientManager", () => {
     expect(manager.size).toBe(2);
   });
 
+  it("retires an old credential pool after its active operation finishes", async () => {
+    const created: ReturnType<typeof fakeClient>[] = [];
+    const manager = new MongoClientManager({
+      factory: () => {
+        const item = fakeClient();
+        created.push(item);
+        return item.client;
+      },
+    });
+    managers.push(manager);
+
+    let finishOldOperation!: () => void;
+    let markOldEntered!: () => void;
+    const oldGate = new Promise<void>((resolve) => { finishOldOperation = resolve; });
+    const oldEntered = new Promise<void>((resolve) => { markOldEntered = resolve; });
+    const oldOperation = manager.withDatabase(
+      "resource-1",
+      "mongodb://user:old@db.example.com/app",
+      options,
+      "app",
+      async () => { markOldEntered(); return oldGate; },
+    );
+    await oldEntered;
+
+    await manager.withDatabase(
+      "resource-1",
+      "mongodb://user:new@db.example.com/app",
+      options,
+      "app",
+      async () => undefined,
+    );
+    expect(created).toHaveLength(2);
+    expect(created[0]!.client.close).not.toHaveBeenCalled();
+
+    finishOldOperation();
+    await oldOperation;
+    await vi.waitFor(() => expect(created[0]!.client.close).toHaveBeenCalledTimes(1));
+    expect(created[1]!.client.close).not.toHaveBeenCalled();
+  });
+
   it("closes idle pools after the configured idle timeout", async () => {
     const item = fakeClient();
     const manager = new MongoClientManager({ factory: () => item.client, idleTimeoutMs: 1_000 });
