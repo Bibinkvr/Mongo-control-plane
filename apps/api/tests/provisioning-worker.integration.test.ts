@@ -5,7 +5,7 @@ import { Pool } from "pg";
 import { encryptConnectionUri, decryptSecretString, type EncryptedConnectionSecret } from "../src/connections/crypto.js";
 import { createDatabaseProvisioningRequest } from "../src/provisioning/repository.js";
 import { processNextProvisioningJob } from "../src/provisioning/worker.js";
-import { removeSharedDatabaseUser } from "../src/provisioning/shared-mongodb.js";
+import { requestDatabaseDeletion } from "../src/provisioning/repository.js";
 import { revealDatabaseConnectionUri, rotateDatabaseCredentialKey } from "../src/provisioning/credentials.js";
 import { hashPassword } from "../src/auth/password.js";
 import { runMigrations } from "../src/db/migrations.js";
@@ -121,11 +121,28 @@ integration("database provisioning worker integration", () => {
       expect(visibleNames).toContain(resource.databaseName);
       expect(visibleNames).not.toContain("admin");
       await expect(appClient.db("another_project").collection("blocked").insertOne({ denied: true })).rejects.toThrow();
-      await removeSharedDatabaseUser(adminClient, {
-        projectId, resourceId: resource.id, databaseName: resource.databaseName,
-        username: resource.username, password,
+      await appClient.close();
+
+      await expect(requestDatabaseDeletion(pool, {
+        caller: { userId: user.rows[0]!.id, isPlatformAdmin: false },
+        projectId, databaseId: resource.id, confirmDatabaseName: "wrong-name",
+      })).rejects.toThrow(/confirmation name/);
+      const deletion = await requestDatabaseDeletion(pool, {
+        caller: { userId: user.rows[0]!.id, isPlatformAdmin: false },
+        projectId, databaseId: resource.id, confirmDatabaseName: resource.databaseName,
       });
-      await adminClient.db(resource.databaseName).dropDatabase();
+      expect(deletion.status).toBe("deleting");
+      expect(await processNextProvisioningJob(pool, rotatedRing, { tls: false, allowLoopback: true })).toBe(true);
+
+      const deletedState = await pool.query<{ status: string; credentialLength: number }>(
+        "SELECT status, octet_length(credential_ciphertext) AS \"credentialLength\" FROM database_resources WHERE id=$1",
+        [resource.id],
+      );
+      expect(deletedState.rows[0]).toEqual({ status: "deleted", credentialLength: 0 });
+      const afterDelete = await adminClient.db(resource.databaseName).command({ usersInfo: resource.username });
+      expect(afterDelete["users"]).toHaveLength(0);
+      const remainingDatabases = await adminClient.db("admin").command({ listDatabases: 1, nameOnly: true });
+      expect((remainingDatabases["databases"] as Array<{ name: string }>).map((item) => item.name)).not.toContain(resource.databaseName);
     } finally {
       await appClient.close();
       await adminClient.close();
