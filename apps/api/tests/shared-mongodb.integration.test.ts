@@ -55,11 +55,12 @@ integration("shared MongoDB provisioning integration", () => {
       const collection = appClient.db(identity.databaseName).collection("permission_probe");
       await collection.insertOne({ resourceId, verified: true });
       expect(await collection.countDocuments({ resourceId })).toBe(1);
-      const visibleDatabases = await appClient.db("admin").command<{ databases: Array<{ name: string }> }>({
+      const visibleDatabases = await appClient.db("admin").command({
         listDatabases: 1, authorizedDatabases: true,
       });
-      expect(visibleDatabases.databases.map((database) => database.name)).toContain(identity.databaseName);
-      expect(visibleDatabases.databases.map((database) => database.name)).not.toContain("admin");
+      const visibleNames = (visibleDatabases["databases"] as Array<{ name: string }>).map((database) => database.name);
+      expect(visibleNames).toContain(identity.databaseName);
+      expect(visibleNames).not.toContain("admin");
       await expect(appClient.db("another_project").collection("blocked").insertOne({ denied: true })).rejects.toThrow();
 
       const retried = await provisionSharedDatabaseUser(adminClient, identity);
