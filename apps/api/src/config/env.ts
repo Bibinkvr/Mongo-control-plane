@@ -8,6 +8,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().trim().url().optional(),
   CONNECTION_ENCRYPTION_KEYS: z.string().optional(),
   CONNECTION_ENCRYPTION_CURRENT_VERSION: z.string().optional(),
+  MONGODB_ALLOW_PRIVATE_NETWORKS: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
 }).superRefine((value, context) => {
   if (value.NODE_ENV === "production" && !value.DATABASE_URL) {
     context.addIssue({ code: "custom", path: ["DATABASE_URL"], message: "is required in production" });
