@@ -45,6 +45,9 @@ export function buildDatabaseConnectionUri(
   const scheme = match[1]!;
   const hosts = match[2]!;
   const params = new URLSearchParams(match[3] ?? "");
+  for (const key of Array.from(params.keys())) {
+    if (["authsource", "authmechanism", "tls", "ssl"].includes(key.toLowerCase())) params.delete(key);
+  }
   params.set("authSource", databaseName);
   params.set("authMechanism", "SCRAM-SHA-256");
   params.set("tls", "true");
