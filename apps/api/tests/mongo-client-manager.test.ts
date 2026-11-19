@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Db, MongoClient, MongoClientOptions } from "mongodb";
 import { MongoClientManager } from "../src/workspace/mongo-client-manager.js";
+import { createSafeMongoLookup } from "../src/provisioning/network-guard.js";
 
 function fakeClient() {
   const database = {} as Db;
@@ -18,6 +19,25 @@ describe("MongoClientManager", () => {
   const managers: MongoClientManager[] = [];
   afterEach(async () => {
     await Promise.all(managers.splice(0).map((manager) => manager.close()));
+  });
+
+  it.skipIf(!process.env["MONGODB_TEST_URI"])("connects to the MongoDB integration service through the guarded lookup", async () => {
+    const manager = new MongoClientManager({ maxClients: 2 });
+    managers.push(manager);
+    const uri = process.env["MONGODB_TEST_URI"]!;
+    const result = await manager.withDatabase(
+      "mongo-service-integration",
+      uri,
+      {
+        lookup: createSafeMongoLookup({ allowLoopback: true }),
+        serverSelectionTimeoutMS: 5_000,
+        connectTimeoutMS: 5_000,
+        maxPoolSize: 2,
+      },
+      "admin",
+      (database) => database.command({ ping: 1 }),
+    );
+    expect(result["ok"]).toBe(1);
   });
 
   it("reuses a pool for the same database credential and replaces it when credentials rotate", async () => {
