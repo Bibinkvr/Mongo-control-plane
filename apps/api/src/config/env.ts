@@ -9,6 +9,7 @@ const envSchema = z.object({
   CONNECTION_ENCRYPTION_KEYS: z.string().optional(),
   CONNECTION_ENCRYPTION_CURRENT_VERSION: z.string().optional(),
   MONGODB_ALLOW_PRIVATE_NETWORKS: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  MONGODB_ALLOW_LOOPBACK: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
 }).superRefine((value, context) => {
   if (value.NODE_ENV === "production" && !value.DATABASE_URL) {
     context.addIssue({ code: "custom", path: ["DATABASE_URL"], message: "is required in production" });
@@ -20,6 +21,9 @@ const envSchema = z.object({
   const hasVersion = Boolean(value.CONNECTION_ENCRYPTION_CURRENT_VERSION);
   if (hasKeys !== hasVersion) {
     context.addIssue({ code: "custom", path: ["CONNECTION_ENCRYPTION_KEYS"], message: "keyring and current version must be configured together" });
+  }
+  if (value.NODE_ENV === "production" && value.MONGODB_ALLOW_LOOPBACK) {
+    context.addIssue({ code: "custom", path: ["MONGODB_ALLOW_LOOPBACK"], message: "must be false in production" });
   }
   if (value.NODE_ENV === "production" && !hasKeys) {
     context.addIssue({ code: "custom", path: ["CONNECTION_ENCRYPTION_KEYS"], message: "is required in production" });
