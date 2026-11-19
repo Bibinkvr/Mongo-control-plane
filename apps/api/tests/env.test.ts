@@ -15,6 +15,14 @@ describe("environment validation", () => {
     expect(() => parseEnv({ PORT: "70000" })).toThrow(/Invalid environment configuration/);
   });
 
+  it("requires a PostgreSQL URL in production", () => {
+    expect(() => parseEnv({ NODE_ENV: "production" })).toThrow(/DATABASE_URL/);
+  });
+
+  it("rejects non-PostgreSQL database URLs", () => {
+    expect(() => parseEnv({ DATABASE_URL: "https://example.com" })).toThrow(/PostgreSQL protocol/);
+  });
+
   it("rejects unsupported runtime environments", () => {
     expect(() => parseEnv({ NODE_ENV: "staging" })).toThrow(/Invalid environment configuration/);
   });
