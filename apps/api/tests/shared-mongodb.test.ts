@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Db, Document } from "mongodb";
+import type { Db, Document, MongoClient } from "mongodb";
 import {
   createSharedDatabaseIdentity,
+  generateSharedDatabasePassword,
   provisionSharedDatabaseUser,
   removeSharedDatabaseUser,
 } from "../src/provisioning/shared-mongodb.js";
@@ -36,6 +37,11 @@ function fakeAdminDb(initialUser?: unknown) {
 }
 
 describe("shared MongoDB provisioning", () => {
+  it("generates a high-entropy URL-safe password", () => {
+    const password = generateSharedDatabasePassword();
+    expect(password).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
   it("derives stable database and user names from UUIDs", () => {
     const result = createSharedDatabaseIdentity(projectId, resourceId, "p".repeat(48));
     expect(result.databaseName).toMatch(/^mcp_[a-f0-9]{16}_[a-f0-9]{16}$/);
@@ -67,6 +73,26 @@ describe("shared MongoDB provisioning", () => {
     expect(result.action).toBe("reconciled");
     expect(fake.commands.some((command) => "updateUser" in command)).toBe(true);
     expect(fake.commands.some((command) => "createUser" in command)).toBe(false);
+  });
+
+  it("recovers a concurrent create race by verifying ownership before reconciliation", async () => {
+    let user: unknown;
+    const commands: Document[] = [];
+    const command = vi.fn(async (input: Document) => {
+      commands.push(input);
+      if ("usersInfo" in input) return { users: user === undefined ? [] : [user] };
+      if ("createUser" in input) {
+        user = { user: input.createUser, customData: input.customData };
+        throw Object.assign(new Error("UserAlreadyExists"), { code: 51003 });
+      }
+      if ("updateUser" in input) return { ok: 1 };
+      return { ok: 1 };
+    });
+    const target = { command } as unknown as Db;
+    const admin = { db: vi.fn(() => target) } as unknown as MongoClient;
+    const result = await provisionSharedDatabaseUser(admin, identity);
+    expect(result.action).toBe("reconciled");
+    expect(commands.some((entry) => "updateUser" in entry)).toBe(true);
   });
 
   it("refuses to modify an unrelated pre-existing user", async () => {
