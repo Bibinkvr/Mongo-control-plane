@@ -47,7 +47,7 @@ The API listens on `127.0.0.1:5000` by default. Override `HOST` and `PORT` throu
 - The web portal/UI has not been implemented. The current workspace is an API.
 - The workspace supports collection list/create/drop, document insert/update/delete, bounded document paging, and index list/create/drop. Query filters, custom sorting/projection, aggregation, schema sampling, and import/export are not yet exposed.
 - The workspace reuses process-local MongoDB client pools keyed by database resource and a one-way credential fingerprint. Pools are capped at 100 clients per API process, use bounded pool/queue/timeouts, and close after 60 seconds idle. This is a per-process cap, not a distributed per-project quota.
-- Dedicated MongoDB deployments, Atlas administration, backup scheduling/jobs, restore workflows, retention, metrics, and alerts are not implemented. A tested encrypted file-storage primitive exists, but it is not an end-to-end backup feature; see `docs/BACKUPS.md`.
+- Dedicated MongoDB deployments, Atlas administration, backup scheduling/jobs, restore workflows, retention, metrics, and alerts are not implemented. Backup request/inventory endpoints and durable PostgreSQL job records now exist, and encrypted file storage is tested. The isolated worker, restore workflow, retention, and scheduling are not implemented; see `docs/BACKUPS.md`.
 - Production rate limiting, CSRF/origin policy, structured secret-redacting logs, lockfile reproducibility, KMS integration, quotas, and operational key-rotation runbooks remain release gates.
 - The API readiness endpoint checks PostgreSQL only; it is not a production readiness guarantee.
 
