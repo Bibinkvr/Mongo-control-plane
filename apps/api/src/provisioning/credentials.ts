@@ -45,9 +45,9 @@ export function buildDatabaseConnectionUri(
   tls = true,
 ): string {
   parseMongoConnectionUri(adminUri);
-  if (!/^mcp_[a-f0-9]{32}$/.test(username)) throw new Error("Application MongoDB username is invalid.");
-  if (!/^mcp_[a-f0-9]{16}_[a-f0-9]{16}$/.test(databaseName)) throw new Error("Application MongoDB database name is invalid.");
-  if (password.length < 32 || password.length > 256 || /[\r\n\0]/.test(password)) throw new Error("Application MongoDB password is invalid.");
+  if (!/^(?:mcp|bkp)_[a-f0-9]{32}$/.test(username)) throw new Error("Managed MongoDB username is invalid.");
+  if (!/^mcp_[a-f0-9]{16}_[a-f0-9]{16}$/.test(databaseName)) throw new Error("Managed MongoDB database name is invalid.");
+  if (password.length < 32 || password.length > 256 || /[\r\n\0]/.test(password)) throw new Error("Managed MongoDB password is invalid.");
   const match = /^(mongodb(?:\+srv)?:\/\/)(?:[^@/]*@)?([^/?#]+)(?:\/[^?#]*)?(?:\?([^#]*))?$/i.exec(adminUri);
   if (!match) throw new Error("The configured MongoDB URI cannot be safely transformed.");
   const scheme = match[1]!;
