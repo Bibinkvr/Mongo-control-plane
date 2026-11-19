@@ -13,10 +13,101 @@ type BackupCredentialRow = {
   database_id: string;
   database_name: string;
   username: string;
+  database_ciphertext: Buffer;
+  database_nonce: Buffer;
+  database_auth_tag: Buffer;
+  database_wrapped_dek: Buffer;
+  database_wrap_nonce: Buffer;
+  database_wrap_auth_tag: Buffer;
+  database_key_version: number;
   database_encryption_context_version: 2;
-  database_secret: EncryptedConnectionSecret;
   connection_id: string;
-  connection_secret: EncryptedConnectionSecret;
+  connection_ciphertext: Buffer;
+  connection_nonce: Buffer;
+  connection_auth_tag: Buffer;
+  connection_wrapped_dek: Buffer;
+  connection_wrap_nonce: Buffer;
+  connection_wrap_auth_tag: Buffer;
+  connection_key_version: number;
+  connection_encryption_context_version: 1 | 2;
+  created_by: string | null;
+};
+
+export class BackupCredentialError extends Error {
+  constructor(
+    public readonly code: "BACKUP_JOB_NOT_OWNED" | "BACKUP_TARGET_UNAVAILABLE",
+    message: string,
+  ) {
+    super(message);
+    this.name = "BackupCredentialError";
+  }
+}
+
+/**
+ * Internal worker-only credential access. A valid running backup lease is
+ * required. The resulting URI is scoped to one managed database user and
+ * must never be logged, serialized to an API response, or persisted plaintext.
+ */
+export async function loadBackupDatabaseCredential(
+  pool: Pool,
+  keyring: EncryptionKeyring,
+  input: { projectId: string; backupId: string; jobId: string; lockToken: string },
+): Promise<{ uri: string; databaseName: string; actorId: string | null }> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query<BackupCredentialRow>(
+      `SELECT b.project_id, b.id AS backup_id, b.created_by,
+              d.id AS database_id, d.database_name, d.username,
+              d.encryption_context_version AS database_encryption_context_version,
+              d.credential_ciphertext AS database_ciphertext,
+              d.credential_nonce AS database_nonce,
+              d.credential_auth_tag AS database_auth_tag,
+              d.wrapped_dek AS database_wrapped_dek,
+              d.wrap_nonce AS database_wrap_nonce,
+              d.wrap_auth_tag AS database_wrap_auth_tag,
+              d.key_version AS database_key_version,
+              d.encryption_context_version AS database_encryption_context_version,
+              c.id AS connection_id,
+              c.secret_ciphertext AS connection_ciphertext,
+              c.secret_nonce AS connection_nonce,
+              c.secret_auth_tag AS connection_auth_tag,
+              c.wrapped_dek AS connection_wrapped_dek,
+              c.wrap_nonce AS connection_wrap_nonce,
+              c.wrap_auth_tag AS connection_wrap_auth_tag,
+              c.key_version AS connection_key_version,
+              c.encryption_context_version AS connection_encryption_context_versionfrom "pg";
+import { buildDatabaseConnectionUri } from "../provisioning/credentials.js";
+import {
+  decryptConnectionUri,
+  decryptSecretString,
+  type EncryptedConnectionSecret,
+  type EncryptionKeyring,
+} from "../connections/crypto.js";
+
+type BackupCredentialRow = {
+  project_id: string;
+  backup_id: string;
+  database_id: string;
+  database_name: string;
+  username: string;
+  database_ciphertext: Buffer;
+  database_nonce: Buffer;
+  database_auth_tag: Buffer;
+  database_wrapped_dek: Buffer;
+  database_wrap_nonce: Buffer;
+  database_wrap_auth_tag: Buffer;
+  database_key_version: number;
+  database_encryption_context_version: 2;
+  connection_id: string;
+  connection_ciphertext: Buffer;
+  connection_nonce: Buffer;
+  connection_auth_tag: Buffer;
+  connection_wrapped_dek: Buffer;
+  connection_wrap_nonce: Buffer;
+  connection_wrap_auth_tag: Buffer;
+  connection_key_version: number;
+  connection_encryption_context_version: 1 | 2;
   created_by: string | null;
 };
 
@@ -82,31 +173,25 @@ export async function loadBackupDatabaseCredential(
     );
     const row = result.rows[0];
     if (!row) throw new BackupCredentialError("BACKUP_JOB_NOT_OWNED", "The running backup job no longer owns its target.");
-    const decode = (value: unknown): Buffer => {
-      if (typeof value !== "string") throw new Error("Encrypted backup credential metadata is invalid.");
-      return Buffer.from(value, "base64");
-    };
-    const databaseSecret = row.database_secret as unknown as Record<string, unknown>;
-    const connectionSecret = row.connection_secret as unknown as Record<string, unknown>;
     const databaseEncrypted: EncryptedConnectionSecret = {
-      ciphertext: decode(databaseSecret["ciphertext"]),
-      nonce: decode(databaseSecret["nonce"]),
-      authTag: decode(databaseSecret["authTag"]),
-      wrappedDek: decode(databaseSecret["wrappedDek"]),
-      wrapNonce: decode(databaseSecret["wrapNonce"]),
-      wrapAuthTag: decode(databaseSecret["wrapAuthTag"]),
-      keyVersion: Number(databaseSecret["keyVersion"]),
-      encryptionContextVersion: Number(databaseSecret["encryptionContextVersion"]) as 1 | 2,
+      ciphertext: row.database_ciphertext,
+      nonce: row.database_nonce,
+      authTag: row.database_auth_tag,
+      wrappedDek: row.database_wrapped_dek,
+      wrapNonce: row.database_wrap_nonce,
+      wrapAuthTag: row.database_wrap_auth_tag,
+      keyVersion: row.database_key_version,
+      encryptionContextVersion: row.database_encryption_context_version,
     };
     const connectionEncrypted: EncryptedConnectionSecret = {
-      ciphertext: decode(connectionSecret["ciphertext"]),
-      nonce: decode(connectionSecret["nonce"]),
-      authTag: decode(connectionSecret["authTag"]),
-      wrappedDek: decode(connectionSecret["wrappedDek"]),
-      wrapNonce: decode(connectionSecret["wrapNonce"]),
-      wrapAuthTag: decode(connectionSecret["wrapAuthTag"]),
-      keyVersion: Number(connectionSecret["keyVersion"]),
-      encryptionContextVersion: Number(connectionSecret["encryptionContextVersion"]) as 1 | 2,
+      ciphertext: row.connection_ciphertext,
+      nonce: row.connection_nonce,
+      authTag: row.connection_auth_tag,
+      wrappedDek: row.connection_wrapped_dek,
+      wrapNonce: row.connection_wrap_nonce,
+      wrapAuthTag: row.connection_wrap_auth_tag,
+      keyVersion: row.connection_key_version,
+      encryptionContextVersion: row.connection_encryption_context_version,
     };
     if (databaseEncrypted.encryptionContextVersion !== 2) {
       throw new Error("Managed database credential encryption context is unsupported.");
