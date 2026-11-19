@@ -208,6 +208,18 @@ export function createSharedDatabaseBackupIdentity(
   return identity;
 }
 
+function assertBackupIdentity(identity: SharedDatabaseBackupIdentity): void {
+  if (!UUID_PATTERN.test(identity.projectId) || !UUID_PATTERN.test(identity.resourceId)) {
+    throw new Error("Project and resource IDs must be UUIDs.");
+  }
+  const expectedDatabase = `mcp_${identity.projectId.replaceAll("-", "").slice(0, 16).toLowerCase()}_${identity.resourceId.replaceAll("-", "").slice(0, 16).toLowerCase()}`;
+  const expectedUsername = `bkp_${identity.resourceId.replaceAll("-", "").toLowerCase()}`;
+  if (identity.databaseName !== expectedDatabase || !BACKUP_USERNAME_PATTERN.test(identity.username)
+    || identity.username !== expectedUsername || identity.password.length < 32 || identity.password.length > 256) {
+    throw new Error("Managed backup database identity is invalid.");
+  }
+}
+
 function isManagedBackupUser(value: unknown, identity: SharedDatabaseBackupIdentity): boolean {
   if (typeof value !== "object" || value === null) return false;
   const customData = (value as { customData?: unknown }).customData;
@@ -228,6 +240,7 @@ export async function provisionSharedDatabaseBackupUser(
   adminClient: MongoClient,
   identity: SharedDatabaseBackupIdentity,
 ): Promise<SharedDatabaseProvisioningResult> {
+  assertBackupIdentity(identity);
   const target = adminClient.db(identity.databaseName);
   const existing = await findUser(target, identity.username);
   const command = {
@@ -263,6 +276,7 @@ export async function removeSharedDatabaseBackupUser(
   adminClient: MongoClient,
   identity: SharedDatabaseBackupIdentity,
 ): Promise<SharedDatabaseRemovalResult> {
+  assertBackupIdentity(identity);
   const target = adminClient.db(identity.databaseName);
   const existing = await findUser(target, identity.username);
   if (existing === undefined) {
