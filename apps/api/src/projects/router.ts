@@ -21,6 +21,10 @@ function currentUser(response: Response): ProjectUser {
 
 export function createProjectsRouter(pool: Pool): Router {
   const router = Router();
+  router.use((_request, response, next) => {
+    response.setHeader("Cache-Control", "no-store");
+    next();
+  });
 
   router.use(async (request: Request, response: Response, next: NextFunction) => {
     try {
