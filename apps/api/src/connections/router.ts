@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import type { Pool } from "pg";
@@ -12,7 +13,7 @@ const createSchema = z.object({
 }).strict();
 
 type Caller = { id: string; is_platform_admin: boolean };
-type DbRow = EncryptedConnectionSecret & { id: string; name: string; kind: string; host_label: string; status: string; created_at: Date; updated_at: Date };
+type DbRow = EncryptedConnectionSecret & { encryption_context_version: 1 | 2; id: string; name: string; kind: string; host_label: string; status: string; created_at: Date; updated_at: Date };
 
 function caller(response: Response): Caller { return response.locals["connectionCaller"] as Caller; }
 function safeMetadata(row: DbRow) {
@@ -62,11 +63,12 @@ export function createConnectionsRouter(pool: Pool, keyring: EncryptionKeyring):
     const body = createSchema.safeParse(request.body);
     if (!id.success) { response.status(400).json({ error: { code: "INVALID_PROJECT_ID", message: "The project ID is invalid." } }); return; }
     if (!body.success) { response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Provide a name, supported connection kind, and MongoDB URI." } }); return; }
+    const connectionId = randomUUID();
     let hostLabel: string;
     let encrypted: EncryptedConnectionSecret;
     try {
       hostLabel = parseMongoConnectionUri(body.data.uri).hostLabel;
-      encrypted = encryptConnectionUri(body.data.uri, keyring);
+      encrypted = encryptConnectionUri(body.data.uri, keyring, { projectId: id.data, connectionId });
     } catch {
       response.status(400).json({ error: { code: "INVALID_MONGODB_URI", message: "The MongoDB connection URI is invalid or unsupported." } });
       return;
@@ -83,12 +85,12 @@ export function createConnectionsRouter(pool: Pool, keyring: EncryptionKeyring):
       if (!hasProjectPermission(role, "connection:manage")) { await client.query("ROLLBACK"); response.status(403).json({ error: { code: "FORBIDDEN", message: "Connection management permission is required." } }); return; }
       const inserted = await client.query<DbRow>(
         `INSERT INTO connection_targets
-          (project_id, name, kind, host_label, secret_ciphertext, secret_nonce, secret_auth_tag,
-           wrapped_dek, wrap_nonce, wrap_auth_tag, key_version, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          (id, project_id, name, kind, host_label, secret_ciphertext, secret_nonce, secret_auth_tag,
+           wrapped_dek, wrap_nonce, wrap_auth_tag, key_version, encryption_context_version, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          RETURNING id, name, kind, host_label, status, created_at, updated_at`,
-        [id.data, body.data.name, body.data.kind, hostLabel, encrypted.ciphertext, encrypted.nonce, encrypted.authTag,
-         encrypted.wrappedDek, encrypted.wrapNonce, encrypted.wrapAuthTag, encrypted.keyVersion, user.id],
+        [connectionId, id.data, body.data.name, body.data.kind, hostLabel, encrypted.ciphertext, encrypted.nonce, encrypted.authTag,
+         encrypted.wrappedDek, encrypted.wrapNonce, encrypted.wrapAuthTag, encrypted.keyVersion, encrypted.encryptionContextVersion, user.id],
       );
       await client.query(
         `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
@@ -127,7 +129,7 @@ export function createConnectionsRouter(pool: Pool, keyring: EncryptionKeyring):
       const selected = await client.query<DbRow>(`SELECT ${columns} FROM connection_targets WHERE id = $1 AND project_id = $2 FOR UPDATE`, [connectionId.data, projectId.data]);
       const row = selected.rows[0];
       if (!row) { await client.query("ROLLBACK"); response.status(404).json({ error: { code: "CONNECTION_NOT_FOUND", message: "The connection was not found." } }); return; }
-      const next = rewrapConnectionSecret(row, keyring);
+      const next = rewrapConnectionSecret(row, keyring, { projectId: projectId.data, connectionId: connectionId.data });
       if (next.keyVersion !== row.keyVersion) {
         await client.query(
           `UPDATE connection_targets SET wrapped_dek=$3, wrap_nonce=$4, wrap_auth_tag=$5, key_version=$6, updated_at=now()
