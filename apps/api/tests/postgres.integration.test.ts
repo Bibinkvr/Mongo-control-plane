@@ -5,7 +5,7 @@ import request from "supertest";
 import { createApp } from "../src/app.js";
 import { hashPassword } from "../src/auth/password.js";
 import { createSessionToken, hashSessionToken } from "../src/auth/session.js";
-import { decryptConnectionUri, encryptConnectionUri } from "../src/connections/crypto.js";
+import { decryptConnectionUri, encryptConnectionUri, encryptSecretString } from "../src/connections/crypto.js";
 import { loadConnectionCredential } from "../src/connections/credential-service.js";
 import { runMigrations } from "../src/db/migrations.js";
 
@@ -357,21 +357,39 @@ integration("PostgreSQL schema and tenant isolation", () => {
        encrypted.wrappedDek, encrypted.wrapNonce, encrypted.wrapAuthTag, encrypted.keyVersion, owner.rows[0]!.id],
     );
 
+    const databaseId = randomUUID();
+    const encryptedPassword = encryptSecretString(
+      "backup-database-user-password-strong",
+      keyring,
+      { projectId, connectionId: databaseId },
+    );
+    await db().query(
+      `INSERT INTO database_resources
+        (id, project_id, connection_id, name, database_name, username,
+         credential_ciphertext, credential_nonce, credential_auth_tag, wrapped_dek,
+         wrap_nonce, wrap_auth_tag, key_version, encryption_context_version, status, created_by)
+       VALUES ($1,$2,$3,'Backup Database','mcp_aaaaaaaaaaaaaaaa_bbbbbbbbbbbbbbbb',
+         'mcp_cccccccccccccccccccccccccccccccc',$4,$5,$6,$7,$8,$9,$10,2,'ready',$11)`,
+      [databaseId, projectId, connectionId, encryptedPassword.ciphertext, encryptedPassword.nonce,
+       encryptedPassword.authTag, encryptedPassword.wrappedDek, encryptedPassword.wrapNonce,
+       encryptedPassword.wrapAuthTag, encryptedPassword.keyVersion, owner.rows[0]!.id],
+    );
+
     const ownerApi = request(createApp({ pool: db(), encryptionKeyring: keyring }));
     const readerApi = request(createApp({ pool: db(), encryptionKeyring: keyring }));
     const queued = await ownerApi.post(`/api/projects/${projectId}/backups`)
       .set("Cookie", `mcp_session=${ownerToken}`)
-      .send({ connectionId, name: "Before deployment" });
+      .send({ databaseId, name: "Before deployment" });
     expect(queued.status).toBe(202);
-    expect(queued.body.backup).toMatchObject({ name: "Before deployment", status: "queued" });
+    expect(queued.body.backup).toMatchObject({ databaseId, name: "Before deployment", status: "queued" });
     const backupId = queued.body.backup.id as string;
     const jobId = queued.body.backup.jobId as string;
 
     const stored = await db().query<{ status: string; storage_key: string | null; nonce: Buffer | null }>(
-      "SELECT status, storage_key, nonce FROM backup_records WHERE id=$1 AND project_id=$2",
+      "SELECT status, database_id, storage_key, nonce FROM backup_records WHERE id=$1 AND project_id=$2",
       [backupId, projectId],
     );
-    expect(stored.rows[0]).toMatchObject({ status: "queued", storage_key: null, nonce: null });
+    expect(stored.rows[0]).toMatchObject({ status: "queued", database_id: databaseId, storage_key: null, nonce: null });
     const job = await db().query<{ operation: string; status: string }>(
       "SELECT operation, status FROM backup_jobs WHERE id=$1 AND backup_id=$2",
       [jobId, backupId],
@@ -387,7 +405,7 @@ integration("PostgreSQL schema and tenant isolation", () => {
 
     const denied = await readerApi.post(`/api/projects/${projectId}/backups`)
       .set("Cookie", `mcp_session=${readerToken}`)
-      .send({ connectionId, name: "Unauthorized backup" });
+      .send({ databaseId, name: "Unauthorized backup" });
     expect(denied.status).toBe(403);
     expect(denied.body.error.code).toBe("FORBIDDEN");
 
@@ -395,6 +413,8 @@ integration("PostgreSQL schema and tenant isolation", () => {
       .set("Cookie", `mcp_session=${ownerToken}`);
     expect(detail.status).toBe(200);
     expect(detail.body.backup.id).toBe(backupId);
+    expect(detail.body.backup.databaseId).toBe(databaseId);
+    expect(detail.body.backup.databaseName).toBe("mcp_aaaaaaaaaaaaaaaa_bbbbbbbbbbbbbbbb");
 
     const event = await db().query<{ action: string }>(
       "SELECT action FROM audit_events WHERE project_id=$1 AND target_id=$2",
