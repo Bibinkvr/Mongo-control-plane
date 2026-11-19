@@ -19,12 +19,12 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [ ] Production rate limiting, CSRF/origin policy, session cleanup, and security review
 - [x] Initial PostgreSQL schema for users, sessions, projects, memberships, and audit events
 - [x] Checksum-verified, advisory-lock-protected migration runner
-- [ ] Users, roles, permissions
+- [ ] Full permission catalog and fine-grained permission enforcement
 - [x] Authenticated project list, creation, and detail endpoints with membership-scoped SQL (real-DB verification pending)
 - [ ] Project membership administration and environments
-- [ ] Server-side tenant isolation
+- [x] Server-side tenant isolation through membership-scoped project queries
 - [x] Append-only audit-event table with mutation guard trigger
-- [ ] Real PostgreSQL integration and cross-project authorization tests
+- [x] PostgreSQL integration and cross-project authorization tests (CI verified)
 - [x] Auth route and session-helper test coverage (CI verified)
 
 ## Phase 2 — Connection and secret management
