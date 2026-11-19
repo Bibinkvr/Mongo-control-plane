@@ -5,6 +5,13 @@ import type { Pool, PoolClient } from "pg";
 
 const defaultMigrationDirectory = fileURLToPath(new URL("../../migrations/", import.meta.url));
 
+/** The runner owns the transaction; ignore legacy BEGIN/COMMIT wrappers in SQL files. */
+function migrationBody(contents: string): string {
+  return contents
+    .replace(/^\\s*(?:--[^\\r\\n]*\\r?\\n\\s*)*(?:BEGIN|START TRANSACTION)\\s*;\\s*/i, "")
+    .replace(/\\s*(?:COMMIT|END)\\s*;\\s*(?:--[^\\r\\n]*\\s*)*$/i, "");
+}
+
 async function applyMigration(client: PoolClient, filename: string, contents: string): Promise<"applied" | "skipped"> {
   const checksum = createHash("sha256").update(contents, "utf8").digest("hex");
   await client.query("BEGIN");
@@ -23,7 +30,7 @@ async function applyMigration(client: PoolClient, filename: string, contents: st
       return "skipped";
     }
 
-    await client.query(contents);
+    await client.query(migrationBody(contents));
     await client.query(
       "INSERT INTO schema_migrations (filename, checksum) VALUES ($1, $2)",
       [filename, checksum],
