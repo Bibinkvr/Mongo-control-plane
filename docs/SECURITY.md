@@ -11,7 +11,7 @@ This document describes required controls. A control is not considered implement
 - Decrypt credentials only inside trusted server-side services after checking a dedicated permission; never serialize credentials into HTTP responses or log them.
 - Preserve legacy encryption-format compatibility until existing secrets have been re-encrypted with context-bound AAD.
 - Redact passwords, URI credentials, access tokens, and sensitive payloads from logs, traces, and errors.
-- Restrict outbound connections to configured database targets. Block loopback, link-local, private, and metadata endpoints unless explicitly allowed by a trusted administrator and deployment policy. Revalidate DNS results to mitigate rebinding.
+- Restrict outbound connections to configured database targets. The provisioning worker must resolve and validate every socket destination, pin the vetted DNS result for that connection, and block loopback, link-local, metadata, multicast, and reserved ranges. RFC1918/ULA destinations require the explicit operator setting `MONGODB_ALLOW_PRIVATE_NETWORKS=true`; loopback remains blocked outside isolated tests.
 - Apply strict connection, query, execution-time, response-size, and concurrency limits.
 - Never accept arbitrary shell commands, Docker arguments, filesystem paths, or provider URLs from untrusted clients.
 - Use least-privilege MongoDB users. Keep deployment-administrator credentials separate from application credentials.
