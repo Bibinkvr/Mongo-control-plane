@@ -20,7 +20,7 @@ UPDATE backup_jobs
 
 UPDATE backup_records
    SET status='failed', last_error_code='BACKUP_TARGET_REQUIRES_DATABASE',
-       completed_at=COALESCE(completed_at, now()), updated_at=now()
+       updated_at=now()
  WHERE status IN ('queued','running') AND database_id IS NULL;
 
 ALTER TABLE backup_records
