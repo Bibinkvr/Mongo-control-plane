@@ -9,6 +9,8 @@ type ClaimedBackupJob = {
   id: string;
   project_id: string;
   backup_id: string;
+  operation: "backup" | "delete";
+  created_by: string | null;
   lock_token: string;
   attempt_count: number;
   max_attempts: number;
@@ -36,11 +38,17 @@ async function claimBackupJob(pool: Pool, leaseSeconds: number): Promise<Claimed
          SELECT j.id
            FROM backup_jobs j
            JOIN backup_records b ON b.id=j.backup_id AND b.project_id=j.project_id
-          WHERE j.operation='backup'
-            AND (
+          WHERE (
+            (j.operation='backup' AND (
               (j.status='queued' AND j.available_at <= now() AND b.status='queued')
               OR (j.status='running' AND j.lease_expires_at < now() AND b.status='running')
-            )
+            ))
+            OR
+            (j.operation='delete' AND (
+              (j.status='queued' AND j.available_at <= now() AND b.status='deleting')
+              OR (j.status='running' AND j.lease_expires_at < now() AND b.status='deleting')
+            ))
+          )
           ORDER BY j.available_at, j.created_at
           FOR UPDATE OF j SKIP LOCKED
           LIMIT 1
@@ -51,7 +59,8 @@ async function claimBackupJob(pool: Pool, leaseSeconds: number): Promise<Claimed
               lock_token=$2, updated_at=now()
          FROM candidate c
         WHERE j.id=c.id
-       RETURNING j.id, j.project_id, j.backup_id, j.lock_token, j.attempt_count, j.max_attempts`,
+       RETURNING j.id, j.project_id, j.backup_id, j.operation, j.created_by,
+                 j.lock_token, j.attempt_count, j.max_attempts`,
       [leaseSeconds, randomUUID()],
     );
     const job = claimed.rows[0];
@@ -59,14 +68,22 @@ async function claimBackupJob(pool: Pool, leaseSeconds: number): Promise<Claimed
       await client.query("COMMIT");
       return undefined;
     }
-    const updated = await client.query(
-      `UPDATE backup_records
-          SET status='running', started_at=COALESCE(started_at,now()),
-              last_error_code=NULL, updated_at=now()
-        WHERE id=$1 AND project_id=$2 AND status IN ('queued','running')`,
-      [job.backup_id, job.project_id],
-    );
-    if (updated.rowCount !== 1) throw new Error("BACKUP_RECORD_STATE_CHANGED");
+    if (job.operation === "backup") {
+      const updated = await client.query(
+        `UPDATE backup_records
+            SET status='running', started_at=COALESCE(started_at,now()),
+                last_error_code=NULL, updated_at=now()
+          WHERE id=$1 AND project_id=$2 AND status IN ('queued','running')`,
+        [job.backup_id, job.project_id],
+      );
+      if (updated.rowCount !== 1) throw new Error("BACKUP_RECORD_STATE_CHANGED");
+    } else {
+      const record = await client.query(
+        "SELECT id FROM backup_records WHERE id=$1 AND project_id=$2 AND status='deleting' FOR UPDATE",
+        [job.backup_id, job.project_id],
+      );
+      if (record.rowCount !== 1) throw new Error("BACKUP_RECORD_STATE_CHANGED");
+    }
     await client.query("COMMIT");
     return job;
   } catch (error) {
@@ -132,6 +149,48 @@ async function completeBackupJob(
   }
 }
 
+async function completeBackupDeletionJob(
+  pool: Pool,
+  job: ClaimedBackupJob,
+  actorId: string | null,
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const completed = await client.query(
+      `UPDATE backup_jobs
+          SET status='succeeded', lock_token=NULL, locked_at=NULL, lease_expires_at=NULL,
+              last_error_code=NULL, updated_at=now()
+        WHERE id=$1 AND project_id=$2 AND backup_id=$3
+          AND operation='delete' AND status='running' AND lock_token=$4`,
+      [job.id, job.project_id, job.backup_id, job.lock_token],
+    );
+    if (completed.rowCount !== 1) throw new Error("BACKUP_LEASE_LOST");
+
+    const record = await client.query(
+      `UPDATE backup_records
+          SET status='deleted', storage_key=NULL, nonce=NULL, auth_tag=NULL, wrapped_dek=NULL,
+              wrap_nonce=NULL, wrap_auth_tag=NULL, key_version=NULL, plaintext_bytes=NULL,
+              sha256=NULL, last_error_code=NULL, updated_at=now()
+        WHERE id=$1 AND project_id=$2 AND status='deleting'`,
+      [job.backup_id, job.project_id],
+    );
+    if (record.rowCount !== 1) throw new Error("BACKUP_RECORD_STATE_CHANGED");
+
+    await client.query(
+      `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
+       VALUES ($1,$2,'backup.deleted','backup',$3,'{}'::jsonb)`,
+      [actorId, job.project_id, job.backup_id],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function failBackupJob(
   pool: Pool,
   job: ClaimedBackupJob,
@@ -153,16 +212,22 @@ async function failBackupJob(
       [job.id, job.lock_token, terminal ? "failed" : "queued", delayMs, errorCode],
     );
     if (updated.rowCount === 1) {
+      const recordStatus = job.operation === "delete"
+        ? (terminal ? "failed" : "deleting")
+        : (terminal ? "failed" : "queued");
       await client.query(
         `UPDATE backup_records
             SET status=$3, last_error_code=$4, updated_at=now()
-          WHERE id=$1 AND project_id=$2 AND status='running'`,
-        [job.backup_id, job.project_id, terminal ? "failed" : "queued", errorCode],
+          WHERE id=$1 AND project_id=$2 AND status=$5`,
+        [job.backup_id, job.project_id, recordStatus, errorCode, job.operation === "delete" ? "deleting" : "running"],
       );
+      const action = job.operation === "delete"
+        ? (terminal ? "backup.delete.failed" : "backup.delete.retry")
+        : (terminal ? "backup.failed" : "backup.retry");
       await client.query(
         `INSERT INTO audit_events (actor_user_id, project_id, action, target_type, target_id, metadata)
          VALUES ($1,$2,$5,'backup',$3,jsonb_build_object('terminal',$4::boolean,'errorCode',$6::text))`,
-        [actorId, job.project_id, job.backup_id, terminal, terminal ? "backup.failed" : "backup.retry", errorCode],
+        [actorId, job.project_id, job.backup_id, terminal, action, errorCode],
       );
     }
     await client.query("COMMIT");
@@ -211,7 +276,7 @@ async function processBackupJob(
   const leaseSeconds = options.leaseSeconds ?? 300;
   const controller = new AbortController();
   let leaseLost = false;
-  let actorId: string | null = null;
+  let actorId: string | null = job.created_by;
   let metadata: Awaited<ReturnType<typeof runMongodumpToEncryptedStorage>> | undefined;
   const heartbeat = setInterval(() => {
     void renewBackupLease(pool, job, leaseSeconds)
@@ -229,6 +294,13 @@ async function processBackupJob(
   heartbeat.unref();
 
   try {
+    if (job.operation === "delete") {
+      await deleteEncryptedBackup(options.storageRoot, job.project_id, job.backup_id);
+      if (leaseLost) throw new Error("BACKUP_LEASE_LOST");
+      await completeBackupDeletionJob(pool, job, actorId);
+      return;
+    }
+
     const credential = await loadBackupDatabaseCredential(pool, keyring, {
       projectId: job.project_id,
       backupId: job.backup_id,
