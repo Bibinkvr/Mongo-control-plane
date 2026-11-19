@@ -174,5 +174,5 @@ export function isSafeDocument(value: unknown, depth = 0): value is Document {
     }
     return true;
   };
-  return visit(value, depth);
+  return jsonByteLength(value) <= 1_000_000 && visit(value, depth);
 }
