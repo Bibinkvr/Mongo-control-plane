@@ -67,6 +67,10 @@ export async function resolveSession(pool: Pool, request: Request): Promise<Auth
 
 export function createAuthRouter(pool: Pool, secureCookies: boolean): Router {
   const router = Router();
+  router.use((_request, response, next) => {
+    response.setHeader("Cache-Control", "no-store");
+    next();
+  });
 
   router.post("/login", async (request, response) => {
     const parsed = loginSchema.safeParse(request.body);
