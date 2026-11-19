@@ -58,14 +58,14 @@ export async function loadBackupDatabaseCredential(
     await client.query("BEGIN");
     const query = [
       "SELECT b.project_id, b.id AS backup_id, b.created_by,",
-      "       d.id AS database_id, d.database_name, d.username,",
-      "       d.credential_ciphertext AS database_ciphertext,",
-      "       d.credential_nonce AS database_nonce,",
-      "       d.credential_auth_tag AS database_auth_tag,",
-      "       d.wrapped_dek AS database_wrapped_dek,",
-      "       d.wrap_nonce AS database_wrap_nonce,",
-      "       d.wrap_auth_tag AS database_wrap_auth_tag,",
-      "       d.key_version AS database_key_version,",
+      "       d.id AS database_id, d.database_name, d.backup_username AS username,",
+      "       d.backup_credential_ciphertext AS database_ciphertext,",
+      "       d.backup_credential_nonce AS database_nonce,",
+      "       d.backup_credential_auth_tag AS database_auth_tag,",
+      "       d.backup_wrapped_dek AS database_wrapped_dek,",
+      "       d.backup_wrap_nonce AS database_wrap_nonce,",
+      "       d.backup_wrap_auth_tag AS database_wrap_auth_tag,",
+      "       d.backup_key_version AS database_key_version,",
       "       d.encryption_context_version AS database_encryption_context_version,",
       "       c.id AS connection_id,",
       "       c.secret_ciphertext AS connection_ciphertext,",
@@ -84,7 +84,7 @@ export async function loadBackupDatabaseCredential(
       "  JOIN connection_targets c ON c.id=d.connection_id AND c.project_id=d.project_id",
       " WHERE j.id=$1 AND j.backup_id=$2 AND j.project_id=$3",
       "   AND j.operation='backup' AND j.status='running' AND j.lock_token=$4",
-      "   AND b.status='running' AND d.status='ready' AND c.status='configured'",
+      "   AND b.status='running' AND d.status='ready' AND d.backup_username IS NOT NULL AND c.status='configured'",
       " FOR SHARE OF j,b,d,c",
     ].join("\n");
     const result = await client.query<BackupCredentialRow>(
