@@ -77,7 +77,7 @@ integration("database provisioning worker integration", () => {
     expect(status.rows[0]?.status).toBe("ready");
 
     const rotatedKey = Buffer.alloc(32, 88);
-    const rotatedRing = { currentVersion: 2, keys: new Map([[1, keyring.keys.get(1)!, [2, rotatedKey]]) };
+    const rotatedRing = { currentVersion: 2, keys: new Map([[1, keyring.keys.get(1)!], [2, rotatedKey]]) };
     const beforeRotation = await pool.query<{ ciphertext: Buffer; wrappedDek: Buffer }>(
       'SELECT credential_ciphertext AS ciphertext, wrapped_dek AS "wrappedDek" FROM database_resources WHERE id=$1',
       [resource.id],
