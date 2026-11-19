@@ -381,10 +381,10 @@ integration("PostgreSQL schema and tenant isolation", () => {
          wrap_nonce, wrap_auth_tag, key_version, encryption_context_version,
          backup_username, backup_credential_ciphertext, backup_credential_nonce,
          backup_credential_auth_tag, backup_wrapped_dek, backup_wrap_nonce,
-         backup_wrap_auth_tag, backup_key_version, status, created_by)
+         backup_wrap_auth_tag, backup_key_version, backup_user_ready_at, status, created_by)
        VALUES ($1,$2,$3,'Backup Database','mcp_aaaaaaaaaaaaaaaa_bbbbbbbbbbbbbbbb',
          'mcp_cccccccccccccccccccccccccccccccc',$4,$5,$6,$7,$8,$9,$10,2,
-         $11,$12,$13,$14,$15,$16,$17,$18,'ready',$19)`,
+         $11,$12,$13,$14,$15,$16,$17,$18,now(),'ready',$19)`,
       [databaseId, projectId, connectionId, encryptedPassword.ciphertext, encryptedPassword.nonce,
        encryptedPassword.authTag, encryptedPassword.wrappedDek, encryptedPassword.wrapNonce,
        encryptedPassword.wrapAuthTag, encryptedPassword.keyVersion, backupUsername,
