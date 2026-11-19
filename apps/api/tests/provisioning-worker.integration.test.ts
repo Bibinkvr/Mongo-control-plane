@@ -143,6 +143,16 @@ integration("database provisioning worker integration", () => {
       expect(afterDelete["users"]).toHaveLength(0);
       const remainingDatabases = await adminClient.db("admin").command({ listDatabases: 1, nameOnly: true });
       expect((remainingDatabases["databases"] as Array<{ name: string }>).map((item) => item.name)).not.toContain(resource.databaseName);
+
+      const deletionAudit = await pool.query<{ action: string }>(
+        "SELECT action FROM audit_events WHERE project_id=$1 AND target_id=$2 ORDER BY occurred_at",
+        [projectId, resource.id],
+      );
+      expect(deletionAudit.rows.map((event) => event.action)).toContain("database.credential.key.rotate");
+      expect(deletionAudit.rows.map((event) => event.action)).toContain("database.credential.reveal");
+      expect(deletionAudit.rows.map((event) => event.action)).toContain("database.delete.request");
+      expect(deletionAudit.rows.map((event) => event.action)).toContain("database.delete.succeeded");
+
     } finally {
       await appClient.close();
       await adminClient.close();
