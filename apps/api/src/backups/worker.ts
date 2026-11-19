@@ -253,7 +253,8 @@ async function processBackupJob(
     metadata = undefined;
   } catch (error) {
     const errorCode = safeErrorCode(error);
-    process.stderr.write(`Backup job ${job.id} failed with ${errorCode}.\\n`);
+    const diagnostic = error instanceof DatabaseToolsError ? error.diagnosticCode ?? error.code : errorCode;
+    process.stderr.write(`Backup job ${job.id} failed with ${errorCode} (${diagnostic}).\\n`);
     if (metadata) {
       const committed = await isBackupMetadataCommitted(pool, job.backup_id, metadata.storageKey);
       if (!committed) {
