@@ -75,6 +75,20 @@ integration("PostgreSQL schema and tenant isolation", () => {
       [project.rows[0]!.id, outsider.rows[0]!.id],
     );
     expect(visibleToOutsider.rows).toHaveLength(0);
+
+    const outsiderToken = createSessionToken();
+    await db().query(
+      "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, now() + interval '1 hour')",
+      [outsider.rows[0]!.id, hashSessionToken(outsiderToken)],
+    );
+    const outsiderApi = request(createApp({ pool: db() }));
+    const outsiderCookie = `mcp_session=${outsiderToken}`;
+    const hiddenProject = await outsiderApi.get(`/api/projects/${project.rows[0]!.id}`).set("Cookie", outsiderCookie);
+    expect(hiddenProject.status).toBe(404);
+    const hiddenMembership = await outsiderApi.post(`/api/projects/${project.rows[0]!.id}/members`)
+      .set("Cookie", outsiderCookie)
+      .send({ email: `owner-${suffix}@example.com`, role: "developer" });
+    expect(hiddenMembership.status).toBe(404);
   });
 
   it("rejects updates to append-only audit events", async () => {
