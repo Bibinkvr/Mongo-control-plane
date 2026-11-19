@@ -63,20 +63,22 @@ async function completeJob(pool: Pool, job: ClaimedJob, actorId: string): Promis
     );
     if (updated.rowCount !== 1) throw new Error("PROVISIONING_LEASE_LOST");
     if (job.operation === "delete") {
-      await client.query(
+      const resourceUpdate = await client.query(
         `UPDATE database_resources
             SET status='deleted', last_error_code=NULL,
                 credential_ciphertext=$3, credential_nonce=$4, credential_auth_tag=$5,
                 wrapped_dek=$6, wrap_nonce=$7, wrap_auth_tag=$8, updated_at=now()
-          WHERE id=$1 AND project_id=$2`,
+          WHERE id=$1 AND project_id=$2 AND status='deleting'`,
         [job.resource_id, job.project_id, Buffer.alloc(0), Buffer.alloc(12), Buffer.alloc(16),
          Buffer.alloc(0), Buffer.alloc(12), Buffer.alloc(16)],
       );
+      if (resourceUpdate.rowCount !== 1) throw new Error("PROVISIONING_RESOURCE_STATE_CHANGED");
     } else {
-      await client.query(
-        "UPDATE database_resources SET status='ready', last_error_code=NULL, updated_at=now() WHERE id=$1 AND project_id=$2",
+      const resourceUpdate = await client.query(
+        "UPDATE database_resources SET status='ready', last_error_code=NULL, updated_at=now() WHERE id=$1 AND project_id=$2 AND status='provisioning'",
         [job.resource_id, job.project_id],
       );
+      if (resourceUpdate.rowCount !== 1) throw new Error("PROVISIONING_RESOURCE_STATE_CHANGED");
     }
     const action = job.operation === "delete" ? "database.delete.succeeded" : "database.provision.succeeded";
     await client.query(
@@ -108,7 +110,7 @@ async function failJob(pool: Pool, job: ClaimedJob, actorId: string | null): Pro
     if (updated.rowCount === 1) {
       await client.query(
         `UPDATE database_resources
-            SET status=CASE WHEN $2 THEN 'failed' WHEN $3='delete' THEN 'deleting' ELSE 'provisioning' END,
+            SET status=CASE WHEN $2 THEN 'failed' WHEN $3::text='delete' THEN 'deleting' ELSE 'provisioning' END,
                 last_error_code='PROVISIONING_FAILED', updated_at=now()
           WHERE id=$1 AND status <> 'deleted'`,
         [job.resource_id, terminal, job.operation],
