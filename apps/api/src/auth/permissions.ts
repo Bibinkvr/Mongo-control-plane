@@ -21,10 +21,10 @@ const ROLE_PERMISSIONS: Record<Exclude<ProjectRole, "platform_admin">, ReadonlyS
   project_admin: new Set(PROJECT_PERMISSIONS),
   developer: new Set([
     "project:read", "members:read", "connection:read", "connection:use",
-    "database:read", "database:write", "database:use", "backup:read",
+    "database:read", "database:write", "backup:read",
   ]),
   read_only: new Set([
-    "project:read", "members:read", "connection:read",
+    "project:read", "members:read", "connection:read", "connection:use",
     "database:read", "backup:read",
   ]),
 };
