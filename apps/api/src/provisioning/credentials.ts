@@ -68,7 +68,7 @@ export async function revealDatabaseConnectionUri(
          FROM projects p
          JOIN users u ON u.id = $2
          LEFT JOIN project_memberships pm ON pm.project_id = p.id AND pm.user_id = u.id
-        WHERE p.id = $1 AND (u.is_platform_admin OR pm.user_id IS NOT NULL)
+        WHERE p.id = $1 AND u.status = 'active' AND (u.is_platform_admin OR pm.user_id IS NOT NULL)
         FOR SHARE OF p`,
       [input.projectId, input.caller.userId],
     );
