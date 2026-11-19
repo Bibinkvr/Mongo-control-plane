@@ -6,7 +6,7 @@
 - npm 10 or later
 - Git
 
-Node.js 24 is selected because the MongoDB Node.js driver 7.x compatibility table explicitly lists Node 24, and the Prisma 7 system requirements support Node 24. Re-evaluate this baseline when the supported dependency matrix changes.
+Node.js 24 is the supported runtime baseline for the current API and MongoDB Node.js driver 7.x dependency. Re-evaluate this baseline when the supported dependency matrix changes.
 
 ## Install
 
@@ -32,18 +32,24 @@ The API listens on `127.0.0.1:5000` by default. Override `HOST` and `PORT` throu
 ## Current endpoints
 
 - `GET /health/live`: process liveness.
-- `GET /health/ready`: verifies PostgreSQL when the API pool is configured; Redis and MongoDB readiness are not yet included.
-- `GET /api/projects/:projectId/databases`: list database resources (requires `database:read`).
-- `POST /api/projects/:projectId/databases`: enqueue shared MongoDB database/user provisioning (requires `database:admin`); credentials are never returned in the response.
+- `GET /health/ready`: checks PostgreSQL when configured; Redis and per-target MongoDB readiness are not included.
+- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`: session authentication.
+- `GET /api/projects`, `POST /api/projects`, `GET /api/projects/:projectId`: project management.
+- `GET|POST /api/projects/:projectId/connections`, `PATCH|DELETE /api/projects/:projectId/connections/:connectionId`, and `POST .../rotate-key`: encrypted connection registry.
+- `GET|POST /api/projects/:projectId/databases`: list and enqueue shared database provisioning.
+- `POST /api/projects/:projectId/databases/:databaseId/credentials`: explicit Compass-compatible URI reveal for project admins only.
+- `POST /api/projects/:projectId/databases/:databaseId/rotate-key`: re-wrap the application credential DEK.
+- `DELETE /api/projects/:projectId/databases/:databaseId`: enqueue confirmed asynchronous deletion.
+- Collection, document, and index routes are listed in the MongoDB workspace section below.
 
 ## Current limitations
 
-- Shared database provisioning is implemented as a PostgreSQL-backed outbox with encrypted application credentials and a separate worker. It is not yet a complete MongoDB workspace or dedicated-deployment manager.
-- Connection metadata endpoints never return plaintext URIs or encryption material.
-- The current encryption keyring is environment-injected; production KMS integration and an operational rotation runbook remain outstanding.
-- Connection-route PostgreSQL integration tests are implemented and run in CI when `TEST_DATABASE_URL` is configured; verify the latest workflow before treating them as passed.
-- The provisioning worker enforces TLS, validates every socket DNS result, and pins vetted addresses to block DNS rebinding and metadata/loopback access. RFC1918/ULA destinations require `MONGODB_ALLOW_PRIVATE_NETWORKS=true`; link-local and metadata destinations remain blocked. Loopback access is disabled by default and `MONGODB_ALLOW_LOOPBACK=true` is rejected in production; enable it only for isolated local development.
-- The current health endpoints are not a production readiness guarantee.
+- The web portal/UI has not been implemented. The current workspace is an API.
+- The workspace supports collection list/create/drop, document insert/update/delete, bounded document paging, and index list/create/drop. Query filters, custom sorting/projection, aggregation, schema sampling, and import/export are not yet exposed.
+- The workspace opens a bounded MongoDB client per request. Connection-pool reuse and per-project connection limits remain future work.
+- Dedicated MongoDB deployments, Atlas administration, backups, restore, metrics, and alerts are not implemented.
+- Production rate limiting, CSRF/origin policy, structured secret-redacting logs, lockfile reproducibility, KMS integration, quotas, and operational key-rotation runbooks remain release gates.
+- The API readiness endpoint checks PostgreSQL only; it is not a production readiness guarantee.
 
 Never put production credentials or customer data in local test fixtures.
 
@@ -51,17 +57,17 @@ Never put production credentials or customer data in local test fixtures.
 
 The initial identity/project schema is in `apps/api/migrations/001_identity_and_projects.sql`.
 
-Apply it to a dedicated PostgreSQL database using a migration runner or, for local development only:
+Apply schema changes with the versioned migration runner:
 
 ```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f apps/api/migrations/001_identity_and_projects.sql
+npm run migrate --workspace @mongo-control-plane/api
 ```
+
+The runner records SHA-256 checksums and serializes concurrent migrations with a PostgreSQL advisory transaction lock. Create a new numbered migration instead of editing an already-applied migration.
 
 Use a dedicated application role that does not own the schema or migration objects. Run schema migrations with a separate deployment role. The application role should receive only the DML permissions required by the API; it must not own `audit_events`, disable triggers, or alter schema objects.
 
-The schema stores account identity, hashed session-token material, project membership, and append-only audit events. It does not store customer MongoDB documents or MongoDB credentials. Do not use the SQL file as an automatic production migration mechanism; a versioned migration runner and migration-state table are still required before production deployment.
-
-The API's PostgreSQL pool helper uses the node-postgres driver. Pool lifecycle wiring, dependency-aware readiness, migration execution, and integration tests are the next implementation steps.
+The schema stores account identity, hashed session-token material, project membership, encrypted connection/database credential envelopes, provisioning jobs, and append-only audit events. It does not store customer MongoDB documents or plaintext MongoDB credentials. The API uses node-postgres pools and the versioned migration runner. Readiness currently verifies PostgreSQL only; MongoDB connectivity is evaluated per configured operation.
 
 ## Authentication bootstrap and local API
 
@@ -109,7 +115,7 @@ The API supports project-scoped connection metadata and encrypted secret registr
 - `POST /api/projects/:projectId/connections/:connectionId/rotate-key` — re-wrap the per-secret data key using the current keyring version.
 - `DELETE /api/projects/:projectId/connections/:connectionId` — remove a registered connection.
 
-Connection creation, updates, key rotation, and deletion require `connection:manage`; listing requires `connection:read`. Trusted server-side credential retrieval requires `connection:use` (project administrators and developers; not read-only members). Mutations and their audit events are committed in one PostgreSQL transaction. PostgreSQL integration tests exercise encrypted persistence, metadata-only responses, project isolation, read-only denial, key rotation, updates, and deletion. All routes are project-membership scoped. The browser never receives a plaintext URI, ciphertext, nonce, authentication tag, wrapped key, or master key. `loadConnectionCredential` in `apps/api/src/connections/credential-service.ts` is an internal server-only service: it checks membership and `connection:use`, refuses disabled targets, decrypts only after authorization, and writes a credential-use audit event. Callers must not log or serialize its returned URI.
+Connection creation, updates, key rotation, and deletion require `connection:manage`; listing requires `connection:read`. Trusted server-side credential retrieval requires `connection:use` (project administrators, developers, and read-only members); this permission is internal to the API and does not reveal the URI. Mutations and their audit events are committed in one PostgreSQL transaction. PostgreSQL integration tests exercise encrypted persistence, metadata-only responses, project isolation, read-only denial, key rotation, updates, and deletion. All routes are project-membership scoped. Connection metadata responses never expose URI ciphertext or key material. The explicit, audited `POST .../credentials` endpoint returns the application URI only to project admins with `database:use`; developers and read-only members use the server-side workspace API and never receive the URI. `loadConnectionCredential` in `apps/api/src/connections/credential-service.ts` is an internal server-only service: it checks membership and `connection:use`, refuses disabled targets, decrypts only after authorization, and writes a credential-use audit event. Callers must not log or serialize its returned URI.
 
 Configure `CONNECTION_ENCRYPTION_KEYS` as a JSON object mapping positive integer versions to canonical base64-encoded 32-byte keys, and `CONNECTION_ENCRYPTION_CURRENT_VERSION` to a version present in that object. Generate a local development key with:
 
@@ -119,7 +125,7 @@ openssl rand -base64 32
 
 Keep old key versions available until every stored secret has been re-wrapped. Migration `003_connection_encryption_context.sql` adds an AAD-format version: pre-existing rows retain legacy AAD (version 1), while new rows use project- and connection-bound AAD (version 2). Key rotation preserves each row's AAD version; legacy secrets must be explicitly re-encrypted before they gain context binding. The rotate-key endpoint only re-wraps the data-encryption key; it does not return secret material. Store production keys in a secret manager and restrict access to the API process. Do not commit real key material.
 
-The URI parser checks the MongoDB scheme and basic host syntax only. It does not make a target safe to connect to. No endpoint currently opens a network connection to a supplied host; implement DNS resolution/pinning, forbidden-address checks, egress policy, timeouts, and resource limits before adding connection testing.
+The URI parser checks scheme, host syntax, and TLS options. Provisioning and workspace operations resolve and validate every socket destination, pin vetted DNS results, block loopback/link-local/metadata/multicast/reserved ranges, require explicit operator opt-in for private networks, and apply connection/query timeouts. Host/container egress firewall rules are still required; these controls do not replace network policy. A user-triggered connection-test endpoint is not implemented.
 
 ## Local dependency stack
 
