@@ -181,7 +181,7 @@ export async function runMongodumpToEncryptedStorage(input: {
       && typeof error.code === "string" ? error.code
       : error instanceof Error ? error.name : "UNKNOWN";
     const diagnosticMessage = error instanceof Error
-      ? error.message.replace(/mongodb(?:\\+srv)?:\\/\\/[^\\s]+/gi, "<redacted-uri>").slice(0, 120)
+      ? error.message.replace(/mongodb(?:\+srv)?:\/\/[^\s]+/gi, "<redacted-uri>").slice(0, 120)
       : "Unknown adapter failure";
     throw new DatabaseToolsError("TOOL_FAILED", "mongodump or encrypted storage failed.", diagnosticCode, diagnosticMessage);
   } finally {
