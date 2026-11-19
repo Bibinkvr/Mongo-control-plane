@@ -34,7 +34,7 @@ export function parseMongoConnectionUri(uri: string): { hostLabel: string } {
   if (uri.length < 10 || uri.length > 16_384 || /[\r\n\0]/.test(uri)) throw new Error("MongoDB connection URI is invalid.");
   let parsed: URL; try { parsed = new URL(uri); } catch { throw new Error("MongoDB connection URI is invalid."); }
   if (parsed.protocol !== "mongodb:" && parsed.protocol !== "mongodb+srv:") throw new Error("Only mongodb:// and mongodb+srv:// connection URIs are supported.");
-  if (!parsed.hostname || parsed.hostname.length > 253) throw new Error("MongoDB connection URI must include a valid host.");
+  if (!parsed.hostname || parsed.hostname.length > 253 || parsed.hash) throw new Error("MongoDB connection URI must include a valid host and no fragment.");
   if (parsed.protocol === "mongodb+srv:" && parsed.port) throw new Error("mongodb+srv:// URIs must not specify a port.");
   for (const [key, value] of parsed.searchParams.entries()) {
     const normalizedKey = key.toLowerCase();
