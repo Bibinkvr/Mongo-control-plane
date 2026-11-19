@@ -36,10 +36,11 @@ The API listens on `127.0.0.1:5000` by default. Override `HOST` and `PORT` throu
 
 ## Current limitations
 
-- No authentication or authorization is implemented yet.
-- No PostgreSQL or Redis connection is implemented yet.
-- No MongoDB connection or provisioning is implemented yet.
-- No secrets are stored or managed yet.
+- Connection targets can be registered and encrypted, but connection testing and MongoDB provisioning are not implemented.
+- Connection metadata endpoints never return plaintext URIs or encryption material.
+- The current encryption keyring is environment-injected; production KMS integration and an operational rotation runbook remain outstanding.
+- Connection-route PostgreSQL integration and tenant-isolation tests remain outstanding.
+- Arbitrary-host connection testing is intentionally disabled until SSRF, DNS rebinding, and outbound network controls are implemented.
 - The current health endpoints are not a production readiness guarantee.
 
 Never put production credentials or customer data in local test fixtures.
@@ -95,6 +96,27 @@ Authenticated project endpoints:
 Project access is derived from the server-side session and membership tables. A project ID supplied by a client is never treated as proof of access. Project creation, creator membership, and the audit event are committed as one PostgreSQL statement.
 
 The current route tests use a controlled database stub. Run the PostgreSQL integration suite once the Compose/test database stack is available; the stub tests do not prove database isolation under real PostgreSQL execution.
+
+## Connection registry and encryption
+
+The API supports project-scoped connection metadata and encrypted secret registration:
+
+- `GET /api/projects/:projectId/connections` — list safe connection metadata only.
+- `POST /api/projects/:projectId/connections` — register a MongoDB URI; the URI is encrypted before persistence.
+- `POST /api/projects/:projectId/connections/:connectionId/rotate-key` — re-wrap the per-secret data key using the current keyring version.
+- `DELETE /api/projects/:projectId/connections/:connectionId` — remove a registered connection.
+
+Connection creation and deletion require `connection:manage`; listing requires `connection:read`. All routes are project-membership scoped. The browser never receives a plaintext URI, ciphertext, nonce, authentication tag, wrapped key, or master key.
+
+Configure `CONNECTION_ENCRYPTION_KEYS` as a JSON object mapping positive integer versions to canonical base64-encoded 32-byte keys, and `CONNECTION_ENCRYPTION_CURRENT_VERSION` to a version present in that object. Generate a local development key with:
+
+```bash
+openssl rand -base64 32
+```
+
+Keep old key versions available until every stored secret has been re-wrapped. The rotate-key endpoint only re-wraps the data-encryption key; it does not return secret material. Store production keys in a secret manager and restrict access to the API process. Do not commit real key material.
+
+The URI parser checks the MongoDB scheme and basic host syntax only. It does not make a target safe to connect to. No endpoint currently opens a network connection to a supplied host; implement DNS resolution/pinning, forbidden-address checks, egress policy, timeouts, and resource limits before adding connection testing.
 
 ## Local dependency stack
 
