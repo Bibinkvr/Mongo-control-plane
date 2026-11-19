@@ -33,7 +33,7 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [x] AES-256-GCM envelope encryption with per-secret DEKs and versioned KEKs
 - [x] DEK re-wrapping key rotation without decrypting MongoDB URI plaintext
 - [x] Rename and enable/disable connection targets with audit events
-- [x] PostgreSQL integration coverage for encrypted storage, key rotation, CRUD, credential authorization, and tenant permissions (CI verification pending)
+- [x] PostgreSQL integration coverage for encrypted storage, key rotation, CRUD, credential authorization, and tenant permissions (CI verified)
 - [x] Internal server-side credential loader with project membership checks, `connection:use` permission, disabled-target rejection, and audit events (CI verification pending)
 - [x] Context-bound AES-GCM AAD for new secrets, with versioned compatibility for existing records
 - [ ] Safe connection testing and SSRF/DNS-rebinding/egress protections
@@ -41,10 +41,13 @@ Status labels: **Planned**, **In progress**, **Implemented**, **Verified**. A fe
 - [ ] Production KMS/secret-manager adapter and operational key-rotation runbook
 
 ## Phase 3 — Shared MongoDB provisioning
+- [x] Shared MongoDB user provisioning primitive with ownership markers and safe retry reconciliation (unit-tested; integration pending)
+- [x] Database-scoped `readWrite` role and SCRAM-SHA-256 enforcement
+- [x] Ownership-checked user removal primitive
 - [ ] Provider interface and capability model
-- [ ] Database namespace creation
-- [ ] Least-privilege database user creation
-- [ ] Idempotent jobs and cleanup compensation
+- [ ] Persisted provisioning jobs and database namespace lifecycle
+- [ ] Encrypted credential persistence before external provisioning
+- [ ] Worker retries, cleanup compensation, and concurrency controls
 - [ ] Real MongoDB integration tests
 
 ## Phase 4 — MongoDB workspace
