@@ -5,7 +5,7 @@ import request from "supertest";
 import { createApp } from "../src/app.js";
 import { hashPassword } from "../src/auth/password.js";
 import { createSessionToken, hashSessionToken } from "../src/auth/session.js";
-import { decryptConnectionUri } from "../src/connections/crypto.js";
+import { decryptConnectionUri, encryptConnectionUri } from "../src/connections/crypto.js";
 import { loadConnectionCredential } from "../src/connections/credential-service.js";
 import { runMigrations } from "../src/db/migrations.js";
 
@@ -308,6 +308,99 @@ integration("PostgreSQL schema and tenant isolation", () => {
     expect(events.rows.map((event) => event.action)).toEqual([
       "connection.create", "connection.key.rotate", "connection.credential.use", "connection.update", "connection.delete",
     ]);
+  });
+
+  it("queues backups transactionally and enforces backup RBAC without exposing storage metadata", async () => {
+    const suffix = randomUUID();
+    const passwordHash = await hashPassword("backup integration password");
+    const owner = await db().query<{ id: string }>(
+      "INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, 'Backup Owner') RETURNING id",
+      [`backup-owner-${suffix}@example.com`, passwordHash],
+    );
+    const reader = await db().query<{ id: string }>(
+      "INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, 'Backup Reader') RETURNING id",
+      [`backup-reader-${suffix}@example.com`, passwordHash],
+    );
+    const project = await db().query<{ id: string }>(
+      "INSERT INTO projects (name, slug, created_by) VALUES ('Backup Test', $1, $2) RETURNING id",
+      [`backup-${suffix}`, owner.rows[0]!.id],
+    );
+    const projectId = project.rows[0]!.id;
+    await db().query(
+      "INSERT INTO project_memberships (project_id, user_id, role, created_by) VALUES ($1,$2,'project_admin',$2),($1,$3,'read_only',$2)",
+      [projectId, owner.rows[0]!.id, reader.rows[0]!.id],
+    );
+
+    const ownerToken = createSessionToken();
+    const readerToken = createSessionToken();
+    for (const [userId, token] of [[owner.rows[0]!.id, ownerToken], [reader.rows[0]!.id, readerToken]] as const) {
+      await db().query(
+        "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1,$2,now()+interval '1 hour')",
+        [userId, hashSessionToken(token)],
+      );
+    }
+
+    const keyring = { currentVersion: 1, keys: new Map([[1, Buffer.alloc(32, 44)]]) };
+    const connectionId = randomUUID();
+    const encrypted = encryptConnectionUri(
+      "mongodb://backup-user:backup-secret@backup.example.com:27017/app",
+      keyring,
+      { projectId, connectionId },
+    );
+    await db().query(
+      `INSERT INTO connection_targets
+        (id, project_id, name, kind, host_label, secret_ciphertext, secret_nonce,
+         secret_auth_tag, wrapped_dek, wrap_nonce, wrap_auth_tag, key_version,
+         encryption_context_version, created_by)
+       VALUES ($1,$2,'Backup Source','shared','backup.example.com',$3,$4,$5,$6,$7,$8,$9,2,$10)`,
+      [connectionId, projectId, encrypted.ciphertext, encrypted.nonce, encrypted.authTag,
+       encrypted.wrappedDek, encrypted.wrapNonce, encrypted.wrapAuthTag, encrypted.keyVersion, owner.rows[0]!.id],
+    );
+
+    const ownerApi = request(createApp({ pool: db(), encryptionKeyring: keyring }));
+    const readerApi = request(createApp({ pool: db(), encryptionKeyring: keyring }));
+    const queued = await ownerApi.post(`/api/projects/${projectId}/backups`)
+      .set("Cookie", `mcp_session=${ownerToken}`)
+      .send({ connectionId, name: "Before deployment" });
+    expect(queued.status).toBe(202);
+    expect(queued.body.backup).toMatchObject({ name: "Before deployment", status: "queued" });
+    const backupId = queued.body.backup.id as string;
+    const jobId = queued.body.backup.jobId as string;
+
+    const stored = await db().query<{ status: string; storage_key: string | null; nonce: Buffer | null }>(
+      "SELECT status, storage_key, nonce FROM backup_records WHERE id=$1 AND project_id=$2",
+      [backupId, projectId],
+    );
+    expect(stored.rows[0]).toMatchObject({ status: "queued", storage_key: null, nonce: null });
+    const job = await db().query<{ operation: string; status: string }>(
+      "SELECT operation, status FROM backup_jobs WHERE id=$1 AND backup_id=$2",
+      [jobId, backupId],
+    );
+    expect(job.rows[0]).toEqual({ operation: "backup", status: "queued" });
+
+    const readerList = await readerApi.get(`/api/projects/${projectId}/backups`)
+      .set("Cookie", `mcp_session=${readerToken}`);
+    expect(readerList.status).toBe(200);
+    expect(readerList.body.backups).toHaveLength(1);
+    expect(JSON.stringify(readerList.body)).not.toContain("storageKey");
+    expect(JSON.stringify(readerList.body)).not.toContain("wrappedDek");
+
+    const denied = await readerApi.post(`/api/projects/${projectId}/backups`)
+      .set("Cookie", `mcp_session=${readerToken}`)
+      .send({ connectionId, name: "Unauthorized backup" });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.code).toBe("FORBIDDEN");
+
+    const detail = await ownerApi.get(`/api/projects/${projectId}/backups/${backupId}`)
+      .set("Cookie", `mcp_session=${ownerToken}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.backup.id).toBe(backupId);
+
+    const event = await db().query<{ action: string }>(
+      "SELECT action FROM audit_events WHERE project_id=$1 AND target_id=$2",
+      [projectId, backupId],
+    );
+    expect(event.rows.map((row) => row.action)).toEqual(["backup.request"]);
   });
 
 });
