@@ -6,12 +6,22 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535).default(5000),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug"]).default("info"),
   DATABASE_URL: z.string().trim().url().optional(),
+  CONNECTION_ENCRYPTION_KEYS: z.string().optional(),
+  CONNECTION_ENCRYPTION_CURRENT_VERSION: z.string().optional(),
 }).superRefine((value, context) => {
   if (value.NODE_ENV === "production" && !value.DATABASE_URL) {
     context.addIssue({ code: "custom", path: ["DATABASE_URL"], message: "is required in production" });
   }
   if (value.DATABASE_URL && !/^postgres(ql)?:\/\//i.test(value.DATABASE_URL)) {
     context.addIssue({ code: "custom", path: ["DATABASE_URL"], message: "must use the PostgreSQL protocol" });
+  }
+  const hasKeys = Boolean(value.CONNECTION_ENCRYPTION_KEYS);
+  const hasVersion = Boolean(value.CONNECTION_ENCRYPTION_CURRENT_VERSION);
+  if (hasKeys !== hasVersion) {
+    context.addIssue({ code: "custom", path: ["CONNECTION_ENCRYPTION_KEYS"], message: "keyring and current version must be configured together" });
+  }
+  if (value.NODE_ENV === "production" && !hasKeys) {
+    context.addIssue({ code: "custom", path: ["CONNECTION_ENCRYPTION_KEYS"], message: "is required in production" });
   }
 });
 
