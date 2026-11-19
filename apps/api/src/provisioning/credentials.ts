@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import { hasProjectPermission } from "../auth/permissions.js";
-import { loadConnectionCredential, type CredentialCaller } from "../connections/credential-service.js";
+import { loadConnectionCredentialInTransaction, type CredentialCaller } from "../connections/credential-service.js";
 import {
   decryptSecretString,
   type EncryptedConnectionSecret,
@@ -88,7 +88,7 @@ export async function revealDatabaseConnectionUri(
     if (row.status !== "ready") throw new DatabaseCredentialError("DATABASE_NOT_READY", "The database is not ready for connections.");
 
     const password = decryptSecretString(row, keyring, { projectId: input.projectId, connectionId: row.id });
-    const adminUri = await loadConnectionCredential(pool, keyring, {
+    const adminUri = await loadConnectionCredentialInTransaction(client, keyring, {
       caller: input.caller,
       projectId: input.projectId,
       connectionId: row.connection_id,
