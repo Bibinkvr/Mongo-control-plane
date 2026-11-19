@@ -32,14 +32,14 @@ The API listens on `127.0.0.1:5000` by default. Override `HOST` and `PORT` throu
 ## Current endpoints
 
 - `GET /health/live`: process liveness.
-- `GET /health/ready`: process readiness only. It does not yet verify PostgreSQL, Redis, or MongoDB dependencies.
+- `GET /health/ready`: verifies PostgreSQL when the API pool is configured; Redis and MongoDB readiness are not yet included.
 
 ## Current limitations
 
 - Connection targets can be registered and encrypted, but connection testing and MongoDB provisioning are not implemented.
 - Connection metadata endpoints never return plaintext URIs or encryption material.
 - The current encryption keyring is environment-injected; production KMS integration and an operational rotation runbook remain outstanding.
-- Connection-route PostgreSQL integration and tenant-isolation tests remain outstanding.
+- Connection-route PostgreSQL integration tests are implemented and run in CI when `TEST_DATABASE_URL` is configured; verify the latest workflow before treating them as passed.
 - Arbitrary-host connection testing is intentionally disabled until SSRF, DNS rebinding, and outbound network controls are implemented.
 - The current health endpoints are not a production readiness guarantee.
 
@@ -103,10 +103,11 @@ The API supports project-scoped connection metadata and encrypted secret registr
 
 - `GET /api/projects/:projectId/connections` — list safe connection metadata only.
 - `POST /api/projects/:projectId/connections` — register a MongoDB URI; the URI is encrypted before persistence.
+- `PATCH /api/projects/:projectId/connections/:connectionId` — rename a connection and/or set its status to `configured` or `disabled`.
 - `POST /api/projects/:projectId/connections/:connectionId/rotate-key` — re-wrap the per-secret data key using the current keyring version.
 - `DELETE /api/projects/:projectId/connections/:connectionId` — remove a registered connection.
 
-Connection creation and deletion require `connection:manage`; listing requires `connection:read`. All routes are project-membership scoped. The browser never receives a plaintext URI, ciphertext, nonce, authentication tag, wrapped key, or master key.
+Connection creation, updates, key rotation, and deletion require `connection:manage`; listing requires `connection:read`. Mutations and their audit events are committed in one PostgreSQL transaction. PostgreSQL integration tests exercise encrypted persistence, metadata-only responses, project isolation, read-only denial, key rotation, updates, and deletion. All routes are project-membership scoped. The browser never receives a plaintext URI, ciphertext, nonce, authentication tag, wrapped key, or master key.
 
 Configure `CONNECTION_ENCRYPTION_KEYS` as a JSON object mapping positive integer versions to canonical base64-encoded 32-byte keys, and `CONNECTION_ENCRYPTION_CURRENT_VERSION` to a version present in that object. Generate a local development key with:
 
